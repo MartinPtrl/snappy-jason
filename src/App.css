@@ -38,6 +38,20 @@ body {
   background-color: #e3f2fd;
 }
 
+/* Sticky header container */
+.sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: white;
+}
+
+/* Main content area */
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
 .drag-overlay {
   position: fixed;
   top: 0;
@@ -133,6 +147,7 @@ body {
   background: #ecf0f1;
   padding: 0.75rem 2rem;
   border-bottom: 1px solid #bdc3c7;
+  margin: 0;
 }
 
 .file-name {
@@ -283,6 +298,7 @@ body {
   border-bottom: 1px solid #dee2e6;
   padding: 1rem;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin: 0;
 }
 
 .search-bar {

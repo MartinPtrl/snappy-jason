@@ -4,7 +4,8 @@ mod state;
 use crate::state::AppState;
 use serde::Serialize;
 use serde_json::Value;
-use std::{fs::File, io::BufReader, sync::Arc};
+use std::{fs::{File, create_dir_all}, io::BufReader, sync::Arc, path::PathBuf};
+use tauri::Manager;
 
 #[derive(Serialize)]
 struct Node {
@@ -384,10 +385,72 @@ fn escape_pointer_token(raw: &str) -> String {
     raw.replace('~', "~0").replace('/', "~1")
 }
 
+// Get the config file path
+fn get_config_file_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let app_data_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {}", e))?;
+    
+    // Ensure the directory exists
+    create_dir_all(&app_data_dir)
+        .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    
+    Ok(app_data_dir.join(".snappy"))
+}
+
+#[tauri::command]
+fn save_last_opened_file(file_path: String, app: tauri::AppHandle) -> Result<(), String> {
+    let config_path = get_config_file_path(&app)?;
+    
+    std::fs::write(&config_path, file_path)
+        .map_err(|e| format!("Failed to save config file: {}", e))?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+fn load_last_opened_file(app: tauri::AppHandle) -> Result<String, String> {
+    let config_path = get_config_file_path(&app)?;
+    
+    if !config_path.exists() {
+        return Err("No config file found".into());
+    }
+    
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config file: {}", e))?;
+    
+    let file_path = content.trim().to_string();
+    
+    // Check if the file still exists
+    if !std::path::Path::new(&file_path).exists() {
+        return Err("Last opened file no longer exists".into());
+    }
+    
+    Ok(file_path)
+}
+
+#[tauri::command]
+fn clear_last_opened_file(app: tauri::AppHandle) -> Result<(), String> {
+    let config_path = get_config_file_path(&app)?;
+    
+    if config_path.exists() {
+        std::fs::remove_file(&config_path)
+            .map_err(|e| format!("Failed to remove config file: {}", e))?;
+    }
+    
+    Ok(())
+}
+
 pub fn main() {
     tauri::Builder::default()
         .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![open_file, load_children, search])
+        .invoke_handler(tauri::generate_handler![
+            open_file, 
+            load_children, 
+            search,
+            save_last_opened_file,
+            load_last_opened_file,
+            clear_last_opened_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

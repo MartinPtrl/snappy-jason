@@ -296,6 +296,48 @@ function App() {
 
   const searchTimeoutRef = useRef<number | null>(null);
 
+  // Config file operations
+  const saveLastOpenedFile = async (filePath: string) => {
+    try {
+      await invoke("save_last_opened_file", { filePath });
+      console.log("💾 Saved last opened file to config:", filePath);
+    } catch (error) {
+      console.error("Failed to save last opened file:", error);
+    }
+  };
+
+  const loadLastOpenedFile = async (): Promise<string | null> => {
+    try {
+      const filePath = await invoke<string>("load_last_opened_file");
+      console.log("📂 Loaded last opened file from config:", filePath);
+      return filePath;
+    } catch (error) {
+      console.log("No last opened file found or error:", error);
+      return null;
+    }
+  };
+
+  const clearLastOpenedFile = async () => {
+    try {
+      await invoke("clear_last_opened_file");
+      console.log("🗑️ Cleared last opened file from config");
+    } catch (error) {
+      console.error("Failed to clear last opened file:", error);
+    }
+  };
+
+  // Load last opened file on app startup
+  useEffect(() => {
+    const restoreLastFile = async () => {
+      const lastFilePath = await loadLastOpenedFile();
+      if (lastFilePath) {
+        console.log("🔄 Restoring last opened file:", lastFilePath);
+        loadFile(lastFilePath);
+      }
+    };
+    restoreLastFile();
+  }, []);
+
   // Listen for Tauri file drop events (this is the ONLY way that works in Tauri)
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -381,6 +423,9 @@ function App() {
       const result = await invoke<Node[]>("open_file", { path });
       setNodes(result);
       setFileName(path.split("/").pop() || path);
+
+      // Save the file path to config file for next app startup
+      await saveLastOpenedFile(path);
     } catch (error) {
       console.error("Failed to load file:", error);
       setError(`Failed to load file: ${error}`);
@@ -457,7 +502,7 @@ function App() {
     }
   };
 
-  const unloadFile = () => {
+  const unloadFile = async () => {
     setNodes([]);
     setFileName("");
     setError("");
@@ -469,6 +514,9 @@ function App() {
     setSearchQuery("");
     setSearchResults([]);
     setSearchError("");
+
+    // Clear the saved file path from config file
+    await clearLastOpenedFile();
   };
 
   const getValueAtPointer = (data: any, pointer: string): any => {
@@ -505,192 +553,202 @@ function App() {
 
   return (
     <div className={`app ${isDragOver ? "drag-over" : ""}`}>
-      <header className="app-header">
-        <h1>Snappy Jason - JSON Viewer</h1>
-        <div className="file-input-container">
-          {(fileName || nodes.length > 0) && (
-            <button
-              onClick={unloadFile}
-              className="file-button unload-button"
-              style={{ marginLeft: "1rem" }}
-              disabled={loading}
-            >
-              Unload File
-            </button>
-          )}
-        </div>
-      </header>
-
-      {fileName && (
-        <div className="file-info">
-          <span className="file-name">📄 {fileName}</span>
-        </div>
-      )}
-
-      {(fileName || nodes.length > 0) && (
-        <div className="search-container">
-          <div className="search-bar">
-            <input
-              type="text"
-              placeholder="Search keys, values, or paths..."
-              value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
-              className="search-input"
-            />
-            <div className="search-options">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={searchOptions.searchKeys}
-                  onChange={(e) =>
-                    setSearchOptions((prev) => ({
-                      ...prev,
-                      searchKeys: e.target.checked,
-                    }))
-                  }
-                />
-                Keys
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={searchOptions.searchValues}
-                  onChange={(e) =>
-                    setSearchOptions((prev) => ({
-                      ...prev,
-                      searchValues: e.target.checked,
-                    }))
-                  }
-                />
-                Values
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={searchOptions.searchPaths}
-                  onChange={(e) =>
-                    setSearchOptions((prev) => ({
-                      ...prev,
-                      searchPaths: e.target.checked,
-                    }))
-                  }
-                />
-                Paths
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={searchOptions.caseSensitive}
-                  onChange={(e) =>
-                    setSearchOptions((prev) => ({
-                      ...prev,
-                      caseSensitive: e.target.checked,
-                    }))
-                  }
-                />
-                Case sensitive
-              </label>
-            </div>
-          </div>
-
-          {searchLoading && (
-            <div className="search-loading">🔍 Searching...</div>
-          )}
-          {searchError && <div className="error-message">❌ {searchError}</div>}
-
-          {isSearchMode && searchStats.totalCount > 0 && (
-            <div className="search-stats">
-              Found {searchStats.totalCount} results
-              {searchStats.hasMore &&
-                ` (showing first ${searchResults.length})`}
-            </div>
-          )}
-        </div>
-      )}
-
-      {error && <div className="error-message">❌ {error}</div>}
-
-      {nodes.length > 0 && !isSearchMode && (
-        <div className="json-viewer">
-          {nodes.map((node, index) => (
-            <TreeNodeContainer
-              key={`${node.pointer}-${index}`}
-              node={node}
-              level={0}
-              onExpand={handleExpand}
-              expandedNodes={expandedNodes}
-              jsonData={jsonData}
-              getValueAtPointer={getValueAtPointer}
-            />
-          ))}
-        </div>
-      )}
-
-      {isSearchMode && searchResults.length > 0 && (
-        <div className="search-results">
-          <div className="search-results-list">
-            {searchResults.map((result, index) => (
-              <div key={`search-${index}`} className="search-result-item">
-                <div className="search-result-header">
-                  <span
-                    className="match-type-badge"
-                    data-type={result.match_type}
-                  >
-                    {result.match_type}
-                  </span>
-                  <span className="result-path">
-                    {result.node.pointer || "/"}
-                  </span>
-                </div>
-                <div className="search-result-content">
-                  <TreeNodeContainer
-                    node={result.node}
-                    level={0}
-                    onExpand={handleExpand}
-                    expandedNodes={expandedNodes}
-                    jsonData={jsonData}
-                    getValueAtPointer={getValueAtPointer}
-                  />
-                </div>
-                <div className="search-result-match">
-                  <strong>Match:</strong> {result.match_text}
-                  {result.context && (
-                    <span className="match-context"> ({result.context})</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {searchStats.hasMore && (
-            <div className="load-more-container">
+      <div className="sticky-header">
+        <header className="app-header">
+          <h1>Snappy JSON Viewer</h1>
+          <div className="file-input-container">
+            {(fileName || nodes.length > 0) && (
               <button
-                onClick={loadMoreResults}
-                disabled={searchLoading}
-                className="load-more-button"
+                onClick={unloadFile}
+                className="file-button unload-button"
+                style={{ marginLeft: "1rem" }}
+                disabled={loading}
               >
-                {searchLoading ? "Loading..." : "Load More Results"}
+                Clear
               </button>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        </header>
 
-      {isSearchMode &&
-        searchResults.length === 0 &&
-        !searchLoading &&
-        searchQuery.trim() && (
-          <div className="no-results">
-            <p>🔍 No results found for "{searchQuery}"</p>
-            <p>Try adjusting your search options or query.</p>
+        {fileName && (
+          <div className="file-info">
+            <span className="file-name">📄 {fileName}</span>
           </div>
         )}
 
-      {nodes.length === 0 && !loading && !error && (
-        <div className="empty-state">
-          <p>💡 Drag and drop a JSON file anywhere on this window</p>
-        </div>
-      )}
+        {(fileName || nodes.length > 0) && (
+          <div className="search-container">
+            <div className="search-bar">
+              <input
+                type="text"
+                placeholder="Search keys, values, or paths..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="search-input"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
+              />
+              <div className="search-options">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={searchOptions.searchKeys}
+                    onChange={(e) =>
+                      setSearchOptions((prev) => ({
+                        ...prev,
+                        searchKeys: e.target.checked,
+                      }))
+                    }
+                  />
+                  Keys
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={searchOptions.searchValues}
+                    onChange={(e) =>
+                      setSearchOptions((prev) => ({
+                        ...prev,
+                        searchValues: e.target.checked,
+                      }))
+                    }
+                  />
+                  Values
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={searchOptions.searchPaths}
+                    onChange={(e) =>
+                      setSearchOptions((prev) => ({
+                        ...prev,
+                        searchPaths: e.target.checked,
+                      }))
+                    }
+                  />
+                  Paths
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={searchOptions.caseSensitive}
+                    onChange={(e) =>
+                      setSearchOptions((prev) => ({
+                        ...prev,
+                        caseSensitive: e.target.checked,
+                      }))
+                    }
+                  />
+                  Case sensitive
+                </label>
+              </div>
+            </div>
+
+            {searchLoading && (
+              <div className="search-loading">🔍 Searching...</div>
+            )}
+            {searchError && (
+              <div className="error-message">❌ {searchError}</div>
+            )}
+
+            {isSearchMode && searchStats.totalCount > 0 && (
+              <div className="search-stats">
+                Found {searchStats.totalCount} results
+                {searchStats.hasMore &&
+                  ` (showing first ${searchResults.length})`}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="main-content">
+        {error && <div className="error-message">❌ {error}</div>}
+
+        {nodes.length > 0 && !isSearchMode && (
+          <div className="json-viewer">
+            {nodes.map((node, index) => (
+              <TreeNodeContainer
+                key={`${node.pointer}-${index}`}
+                node={node}
+                level={0}
+                onExpand={handleExpand}
+                expandedNodes={expandedNodes}
+                jsonData={jsonData}
+                getValueAtPointer={getValueAtPointer}
+              />
+            ))}
+          </div>
+        )}
+
+        {isSearchMode && searchResults.length > 0 && (
+          <div className="search-results">
+            <div className="search-results-list">
+              {searchResults.map((result, index) => (
+                <div key={`search-${index}`} className="search-result-item">
+                  <div className="search-result-header">
+                    <span
+                      className="match-type-badge"
+                      data-type={result.match_type}
+                    >
+                      {result.match_type}
+                    </span>
+                    <span className="result-path">
+                      {result.node.pointer || "/"}
+                    </span>
+                  </div>
+                  <div className="search-result-content">
+                    <TreeNodeContainer
+                      node={result.node}
+                      level={0}
+                      onExpand={handleExpand}
+                      expandedNodes={expandedNodes}
+                      jsonData={jsonData}
+                      getValueAtPointer={getValueAtPointer}
+                    />
+                  </div>
+                  <div className="search-result-match">
+                    <strong>Match:</strong> {result.match_text}
+                    {result.context && (
+                      <span className="match-context"> ({result.context})</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {searchStats.hasMore && (
+              <div className="load-more-container">
+                <button
+                  onClick={loadMoreResults}
+                  disabled={searchLoading}
+                  className="load-more-button"
+                >
+                  {searchLoading ? "Loading..." : "Load More Results"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {isSearchMode &&
+          searchResults.length === 0 &&
+          !searchLoading &&
+          searchQuery.trim() && (
+            <div className="no-results">
+              <p>🔍 No results found for "{searchQuery}"</p>
+              <p>Try adjusting your search options or query.</p>
+            </div>
+          )}
+
+        {nodes.length === 0 && !loading && !error && (
+          <div className="empty-state">
+            <p>💡 Drag and drop a JSON file anywhere on this window</p>
+          </div>
+        )}
+      </div>
 
       {isDragOver && (
         <div className="drag-overlay">
