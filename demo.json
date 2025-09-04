@@ -1,0 +1,48 @@
+{
+  "name": "Snappy Jason Demo",
+  "version": "1.0.0",
+  "description": "A sample JSON file to demonstrate the JSON viewer",
+  "features": [
+    "Fast JSON parsing",
+    "Hierarchical tree view",
+    "Lazy loading",
+    "Type-aware display"
+  ],
+  "config": {
+    "theme": "dark",
+    "maxItems": 1000,
+    "enableSearch": true,
+    "shortcuts": {
+      "expand": "Space",
+      "collapse": "Backspace",
+      "search": "Ctrl+F"
+    }
+  },
+  "users": [
+    {
+      "id": 1,
+      "name": "Alice Johnson",
+      "email": "alice@example.com",
+      "active": true,
+      "roles": ["admin", "user"],
+      "lastLogin": "2025-09-04T10:30:00Z"
+    },
+    {
+      "id": 2,
+      "name": "Bob Smith",
+      "email": "bob@example.com",
+      "active": false,
+      "roles": ["user"],
+      "lastLogin": null
+    }
+  ],
+  "metadata": {
+    "created": "2025-09-04T09:00:00Z",
+    "modified": "2025-09-04T10:45:00Z",
+    "size": 2048,
+    "checksum": "abc123def456"
+  },
+  "nullValue": null,
+  "booleanValue": true,
+  "numberValue": 42.5
+}
