@@ -36,7 +36,7 @@
     "category": "Productivity",
     "shortDescription": "A fast JSON viewer and editor",
     "longDescription": "Snappy Jason is a desktop application for viewing and editing JSON files with a clean, intuitive interface.",
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "copyright": "Copyright © 2025 martinsmsmachine",
     "licenseFile": "../LICENSE",
     "macOS": {
