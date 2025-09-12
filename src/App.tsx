@@ -2,42 +2,15 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type {
+  Node,
+  SearchResult,
+  SearchResponse,
+  TreeNodeProps,
+  SearchOptions,
+} from "@/shared/types";
+import { useFileOperations } from "@/features/file";
 import "./App.css";
-
-interface Node {
-  pointer: string;
-  key?: string;
-  value_type: string;
-  has_children: boolean;
-  child_count: number;
-  preview: string;
-}
-
-interface SearchResult {
-  node: Node;
-  match_type: string;
-  match_text: string;
-  context?: string;
-}
-
-interface SearchResponse {
-  results: SearchResult[];
-  total_count: number;
-  has_more: boolean;
-}
-
-interface TreeNodeProps {
-  node: Node;
-  level: number;
-  onExpand: (pointer: string) => void;
-  expandedNodes: Set<string>;
-  children?: Node[];
-  jsonData?: any;
-  getValueAtPointer?: (data: any, pointer: string) => any;
-  hasMore?: boolean;
-  loading?: boolean;
-  loadMoreRef?: React.RefObject<HTMLDivElement | null>;
-}
 
 const createNodesFromJSON = (data: any, parentPointer: string = ""): Node[] => {
   const nodes: Node[] = [];
@@ -342,11 +315,20 @@ function TreeNodeContainer({
 }
 
 function App() {
-  const [nodes, setNodes] = useState<Node[]>([]);
+  // File operations hook
+  const {
+    fileName,
+    loading,
+    error,
+    nodes,
+    loadFile,
+    unloadFile,
+    restoreLastFile,
+    loadMoreNodes,
+  } = useFileOperations();
+
+  // Other state (non-file related)
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>("");
-  const [fileName, setFileName] = useState<string>("");
   const [jsonData, setJsonData] = useState<any>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -361,7 +343,7 @@ function App() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string>("");
   const [isSearchMode, setIsSearchMode] = useState(false);
-  const [searchOptions, setSearchOptions] = useState({
+  const [searchOptions, setSearchOptions] = useState<SearchOptions>({
     searchKeys: true,
     searchValues: true,
     searchPaths: false,
@@ -374,45 +356,9 @@ function App() {
 
   const searchTimeoutRef = useRef<number | null>(null);
 
-  // Config file operations
-  const saveLastOpenedFile = async (filePath: string) => {
-    try {
-      await invoke("save_last_opened_file", { filePath });
-      console.log("💾 Saved last opened file to config:", filePath);
-    } catch (error) {
-      console.error("Failed to save last opened file:", error);
-    }
-  };
-
-  const loadLastOpenedFile = async (): Promise<string | null> => {
-    try {
-      const filePath = await invoke<string>("load_last_opened_file");
-      console.log("📂 Loaded last opened file from config:", filePath);
-      return filePath;
-    } catch (error) {
-      console.log("No last opened file found or error:", error);
-      return null;
-    }
-  };
-
-  const clearLastOpenedFile = async () => {
-    try {
-      await invoke("clear_last_opened_file");
-      console.log("🗑️ Cleared last opened file from config");
-    } catch (error) {
-      console.error("Failed to clear last opened file:", error);
-    }
-  };
-
   // Load last opened file on app startup
   useEffect(() => {
-    const restoreLastFile = async () => {
-      const lastFilePath = await loadLastOpenedFile();
-      if (lastFilePath) {
-        console.log("🔄 Restoring last opened file:", lastFilePath);
-        loadFile(lastFilePath);
-      }
-    };
+    // Restore last opened file on startup
     restoreLastFile();
   }, []);
 
@@ -442,9 +388,12 @@ function App() {
               );
               if (jsonFile) {
                 console.log("📁 Loading JSON file via Tauri:", jsonFile);
-                loadFile(jsonFile);
+                handleFileLoad(jsonFile);
               } else {
-                setError("Please drop a JSON file");
+                // Show error in UI by setting a temporary error state
+                const tempError = "Please drop a JSON file";
+                setSearchError(tempError);
+                setTimeout(() => setSearchError(""), 3000);
               }
             }
             setIsDragOver(false);
@@ -485,9 +434,7 @@ function App() {
     };
   }, []);
 
-  const loadFile = async (path: string) => {
-    setLoading(true);
-    setError("");
+  const handleFileLoad = async (path: string) => {
     setExpandedNodes(new Set());
     setJsonData(null);
 
@@ -497,24 +444,15 @@ function App() {
     setSearchResults([]);
     setSearchError("");
 
-    try {
-      const result = await invoke<Node[]>("open_file", { path });
-      setNodes(result);
-      setFileName(path.split("/").pop() || path);
-
-      // Check if there might be more nodes at the root level
-      setMainHasMore(result.length === 100); // If we got exactly 100, there might be more
-
-      // Save the file path to config file for next app startup
-      await saveLastOpenedFile(path);
-    } catch (error) {
-      console.error("Failed to load file:", error);
-      setError(`Failed to load file: ${error}`);
-      setNodes([]);
-      setFileName("");
-    } finally {
-      setLoading(false);
-    }
+    await loadFile(path, {
+      onSuccess: (nodes: Node[]) => {
+        // Check if there might be more nodes at the root level
+        setMainHasMore(nodes.length === 100);
+      },
+      onError: (error: string) => {
+        console.error("File load error:", error);
+      },
+    });
   };
 
   // Main level infinite scroll observer
@@ -545,13 +483,7 @@ function App() {
 
     setMainLoading(true);
     try {
-      const result = await invoke<Node[]>("load_children", {
-        pointer: "",
-        offset: nodes.length,
-        limit: 100,
-      });
-
-      setNodes((prev) => [...prev, ...result]);
+      const result = await loadMoreNodes(nodes.length, 100);
       setMainHasMore(result.length === 100); // If we got exactly 100, there might be more
     } catch (error) {
       console.error("Failed to load more nodes:", error);
@@ -626,10 +558,7 @@ function App() {
     }
   };
 
-  const unloadFile = async () => {
-    setNodes([]);
-    setFileName("");
-    setError("");
+  const handleFileUnload = async () => {
     setExpandedNodes(new Set());
     setJsonData(null);
 
@@ -643,8 +572,21 @@ function App() {
     setMainHasMore(false);
     setMainLoading(false);
 
-    // Clear the saved file path from config file
-    await clearLastOpenedFile();
+    await unloadFile(() => {
+      // Clear tree state
+      setExpandedNodes(new Set());
+      setJsonData(null);
+
+      // Clear search state
+      setIsSearchMode(false);
+      setSearchQuery("");
+      setSearchResults([]);
+      setSearchError("");
+
+      // Clear main level pagination state
+      setMainHasMore(false);
+      setMainLoading(false);
+    });
   };
 
   const getValueAtPointer = (data: any, pointer: string): any => {
@@ -687,7 +629,7 @@ function App() {
           <div className="file-input-container">
             {(fileName || nodes.length > 0) && (
               <button
-                onClick={unloadFile}
+                onClick={handleFileUnload}
                 className="file-button unload-button"
                 style={{ marginLeft: "1rem" }}
                 disabled={loading}
