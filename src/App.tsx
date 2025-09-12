@@ -34,6 +34,9 @@ interface TreeNodeProps {
   children?: Node[];
   jsonData?: any;
   getValueAtPointer?: (data: any, pointer: string) => any;
+  hasMore?: boolean;
+  loading?: boolean;
+  loadMoreRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 const createNodesFromJSON = (data: any, parentPointer: string = ""): Node[] => {
@@ -126,6 +129,9 @@ function TreeNode({
   children,
   jsonData,
   getValueAtPointer,
+  hasMore,
+  loading,
+  loadMoreRef,
 }: TreeNodeProps) {
   const isExpanded = expandedNodes.has(node.pointer);
   const hasChildren = node.has_children;
@@ -193,6 +199,25 @@ function TreeNode({
               getValueAtPointer={getValueAtPointer}
             />
           ))}
+          {hasMore && (
+            <div
+              ref={loadMoreRef}
+              className="infinite-scroll-trigger"
+              style={{
+                height: "1px",
+                paddingLeft: `${(level + 1) * 20}px`,
+                opacity: 0.5,
+              }}
+            >
+              {loading && (
+                <div
+                  style={{ fontSize: "12px", color: "#666", padding: "4px 0" }}
+                >
+                  Loading...
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -209,6 +234,79 @@ function TreeNodeContainer({
 }: Omit<TreeNodeProps, "children">) {
   const [children, setChildren] = useState<Node[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadedCount, setLoadedCount] = useState(0);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  const loadChildren = useCallback(
+    async (pointer: string, offset = 0, append = false) => {
+      if (loading) return; // Prevent concurrent loads
+
+      setLoading(true);
+      try {
+        const limit = 100; // Load 100 items at a time
+
+        // Try backend first, fallback to frontend if jsonData is available
+        if (jsonData && getValueAtPointer) {
+          // Frontend expansion
+          const value = getValueAtPointer(jsonData, pointer);
+          const allChildNodes = createNodesFromJSON(value, pointer);
+          const newChildren = allChildNodes.slice(offset, offset + limit);
+
+          if (append) {
+            setChildren((prev) => [...prev, ...newChildren]);
+          } else {
+            setChildren(newChildren);
+          }
+          setLoadedCount(offset + newChildren.length);
+          setHasMore(offset + newChildren.length < allChildNodes.length);
+        } else {
+          // Backend expansion
+          const result = await invoke<Node[]>("load_children", {
+            pointer,
+            offset,
+            limit,
+          });
+
+          if (append) {
+            setChildren((prev) => [...prev, ...result]);
+          } else {
+            setChildren(result);
+          }
+          setLoadedCount(offset + result.length);
+          setHasMore(result.length === limit); // If we got a full batch, there might be more
+        }
+      } catch (error) {
+        console.error("Failed to load children:", error);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [jsonData, getValueAtPointer, loading]
+  );
+
+  // Intersection observer for infinite scroll
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && hasMore && !loading) {
+          loadChildren(node.pointer, loadedCount, true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
+    }
+
+    return () => {
+      if (loadMoreRef.current) {
+        observer.unobserve(loadMoreRef.current);
+      }
+    };
+  }, [hasMore, loading, loadedCount, node.pointer, loadChildren]);
 
   const handleExpand = useCallback(
     async (pointer: string) => {
@@ -220,39 +318,11 @@ function TreeNodeContainer({
 
       // Expand - load children if needed
       if (node.pointer === pointer && children.length === 0) {
-        setLoading(true);
-        try {
-          // Try backend first, fallback to frontend if jsonData is available
-          if (jsonData && getValueAtPointer) {
-            // Frontend expansion
-            const value = getValueAtPointer(jsonData, pointer);
-            const childNodes = createNodesFromJSON(value, pointer);
-            setChildren(childNodes);
-          } else {
-            // Backend expansion
-            const result = await invoke<Node[]>("load_children", {
-              pointer,
-              offset: 0,
-              limit: 1000,
-            });
-            setChildren(result);
-          }
-        } catch (error) {
-          console.error("Failed to load children:", error);
-        } finally {
-          setLoading(false);
-        }
+        await loadChildren(pointer, 0, false);
       }
       onExpand(pointer);
     },
-    [
-      node.pointer,
-      children.length,
-      expandedNodes,
-      onExpand,
-      jsonData,
-      getValueAtPointer,
-    ]
+    [node.pointer, children.length, loadChildren, onExpand]
   );
 
   return (
@@ -264,6 +334,9 @@ function TreeNodeContainer({
       children={loading ? [] : children}
       jsonData={jsonData}
       getValueAtPointer={getValueAtPointer}
+      loadMoreRef={loadMoreRef}
+      hasMore={hasMore}
+      loading={loading}
     />
   );
 }
@@ -276,6 +349,11 @@ function App() {
   const [fileName, setFileName] = useState<string>("");
   const [jsonData, setJsonData] = useState<any>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // Main level pagination state
+  const [mainHasMore, setMainHasMore] = useState(false);
+  const [mainLoading, setMainLoading] = useState(false);
+  const mainLoadMoreRef = useRef<HTMLDivElement>(null);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -424,6 +502,9 @@ function App() {
       setNodes(result);
       setFileName(path.split("/").pop() || path);
 
+      // Check if there might be more nodes at the root level
+      setMainHasMore(result.length === 100); // If we got exactly 100, there might be more
+
       // Save the file path to config file for next app startup
       await saveLastOpenedFile(path);
     } catch (error) {
@@ -433,6 +514,49 @@ function App() {
       setFileName("");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Main level infinite scroll observer
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && mainHasMore && !mainLoading) {
+          loadMoreMain();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (mainLoadMoreRef.current) {
+      observer.observe(mainLoadMoreRef.current);
+    }
+
+    return () => {
+      if (mainLoadMoreRef.current) {
+        observer.unobserve(mainLoadMoreRef.current);
+      }
+    };
+  }, [mainHasMore, mainLoading, nodes.length]);
+
+  const loadMoreMain = async () => {
+    if (mainLoading || !mainHasMore) return;
+
+    setMainLoading(true);
+    try {
+      const result = await invoke<Node[]>("load_children", {
+        pointer: "",
+        offset: nodes.length,
+        limit: 100,
+      });
+
+      setNodes((prev) => [...prev, ...result]);
+      setMainHasMore(result.length === 100); // If we got exactly 100, there might be more
+    } catch (error) {
+      console.error("Failed to load more nodes:", error);
+    } finally {
+      setMainLoading(false);
     }
   };
 
@@ -514,6 +638,10 @@ function App() {
     setSearchQuery("");
     setSearchResults([]);
     setSearchError("");
+
+    // Clear main level pagination state
+    setMainHasMore(false);
+    setMainLoading(false);
 
     // Clear the saved file path from config file
     await clearLastOpenedFile();
@@ -680,6 +808,25 @@ function App() {
                 getValueAtPointer={getValueAtPointer}
               />
             ))}
+            {mainHasMore && (
+              <div
+                ref={mainLoadMoreRef}
+                className="infinite-scroll-trigger"
+                style={{
+                  height: "20px",
+                  opacity: 0.5,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {mainLoading && (
+                  <div style={{ fontSize: "12px", color: "#666" }}>
+                    Loading more items...
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

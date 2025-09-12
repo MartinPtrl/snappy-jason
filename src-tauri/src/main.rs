@@ -39,7 +39,7 @@ fn open_file(path: String, state: tauri::State<'_, AppState>) -> Result<Vec<Node
     // MVP: serde_json; swap to simd-json later
     let root: Value = serde_json::from_reader(reader).map_err(|e| e.to_string())?;
     let arc = Arc::new(root);
-    let top = list_children(&arc, "", 0, 200); // first 200 top-level children
+    let top = list_children(&arc, "", 0, 100); // Load first 100 top-level children
     *state.doc.write() = Some(arc);
     Ok(top)
 }

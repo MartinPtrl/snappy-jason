@@ -1,0 +1,50 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Tauri Dev",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "yarn tauri dev",
+      "cwd": "${workspaceFolder}",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "name": "Tauri Build",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "yarn tauri build",
+      "cwd": "${workspaceFolder}",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "name": "Yarn Install",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "yarn install",
+      "cwd": "${workspaceFolder}",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    }
+  ]
+}
