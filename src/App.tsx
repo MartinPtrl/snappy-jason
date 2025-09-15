@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -6,313 +6,11 @@ import type {
   Node,
   SearchResult,
   SearchResponse,
-  TreeNodeProps,
   SearchOptions,
 } from "@/shared/types";
 import { useFileOperations } from "@/features/file";
+import { Tree } from "@/features/tree";
 import "./App.css";
-
-const createNodesFromJSON = (data: any, parentPointer: string = ""): Node[] => {
-  const nodes: Node[] = [];
-
-  if (typeof data === "object" && data !== null) {
-    if (Array.isArray(data)) {
-      data.slice(0, 200).forEach((item, index) => {
-        const pointer = `${parentPointer}/${index}`;
-        const node = createNodeFromValue(index.toString(), item, pointer);
-        nodes.push(node);
-      });
-    } else {
-      Object.entries(data)
-        .slice(0, 200)
-        .forEach(([key, value]) => {
-          const pointer = `${parentPointer}/${key}`;
-          const node = createNodeFromValue(key, value, pointer);
-          nodes.push(node);
-        });
-    }
-  }
-
-  return nodes;
-};
-
-const createNodeFromValue = (
-  key: string,
-  value: any,
-  pointer: string
-): Node => {
-  let valueType: string;
-  let hasChildren: boolean;
-  let childCount: number;
-  let preview: string;
-
-  if (value === null) {
-    valueType = "null";
-    hasChildren = false;
-    childCount = 0;
-    preview = "null";
-  } else if (typeof value === "boolean") {
-    valueType = "boolean";
-    hasChildren = false;
-    childCount = 0;
-    preview = value.toString();
-  } else if (typeof value === "number") {
-    valueType = "number";
-    hasChildren = false;
-    childCount = 0;
-    preview = value.toString();
-  } else if (typeof value === "string") {
-    valueType = "string";
-    hasChildren = false;
-    childCount = 0;
-    preview = value.length > 120 ? `${value.substring(0, 120)}…` : value;
-  } else if (Array.isArray(value)) {
-    valueType = "array";
-    hasChildren = value.length > 0;
-    childCount = value.length;
-    preview = `[…] ${value.length} items`;
-  } else if (typeof value === "object") {
-    const keys = Object.keys(value);
-    valueType = "object";
-    hasChildren = keys.length > 0;
-    childCount = keys.length;
-    preview = `{…} ${keys.length} keys`;
-  } else {
-    valueType = typeof value;
-    hasChildren = false;
-    childCount = 0;
-    preview = String(value);
-  }
-
-  return {
-    pointer,
-    key,
-    value_type: valueType,
-    has_children: hasChildren,
-    child_count: childCount,
-    preview,
-  };
-};
-
-function TreeNode({
-  node,
-  level,
-  onExpand,
-  expandedNodes,
-  children,
-  jsonData,
-  getValueAtPointer,
-  hasMore,
-  loading,
-  loadMoreRef,
-}: TreeNodeProps) {
-  const isExpanded = expandedNodes.has(node.pointer);
-  const hasChildren = node.has_children;
-
-  const handleToggle = () => {
-    if (hasChildren) {
-      onExpand(node.pointer);
-    }
-  };
-
-  const getIcon = () => {
-    if (!hasChildren) return "  ";
-    return isExpanded ? "▼ " : "▶ ";
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case "object":
-        return "#e67e22";
-      case "array":
-        return "#9b59b6";
-      case "string":
-        return "#27ae60";
-      case "number":
-        return "#3498db";
-      case "boolean":
-        return "#e74c3c";
-      case "null":
-        return "#95a5a6";
-      default:
-        return "#34495e";
-    }
-  };
-
-  return (
-    <div className="tree-node">
-      <div
-        className={`node-header ${hasChildren ? "expandable" : ""}`}
-        style={{ paddingLeft: `${level * 20}px` }}
-        onClick={handleToggle}
-      >
-        <span className="expand-icon">{getIcon()}</span>
-        <span className="node-key">{node.key || "root"}</span>
-        <span
-          className="node-type"
-          style={{ color: getTypeColor(node.value_type) }}
-        >
-          {node.value_type}
-        </span>
-        {node.child_count > 0 && (
-          <span className="child-count">({node.child_count})</span>
-        )}
-        <span className="node-preview">{node.preview}</span>
-      </div>
-      {isExpanded && children && (
-        <div className="node-children">
-          {children.map((child, index) => (
-            <TreeNodeContainer
-              key={`${child.pointer}-${index}`}
-              node={child}
-              level={level + 1}
-              onExpand={onExpand}
-              expandedNodes={expandedNodes}
-              jsonData={jsonData}
-              getValueAtPointer={getValueAtPointer}
-            />
-          ))}
-          {hasMore && (
-            <div
-              ref={loadMoreRef}
-              className="infinite-scroll-trigger"
-              style={{
-                height: "1px",
-                paddingLeft: `${(level + 1) * 20}px`,
-                opacity: 0.5,
-              }}
-            >
-              {loading && (
-                <div
-                  style={{ fontSize: "12px", color: "#666", padding: "4px 0" }}
-                >
-                  Loading...
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TreeNodeContainer({
-  node,
-  level,
-  onExpand,
-  expandedNodes,
-  jsonData,
-  getValueAtPointer,
-}: Omit<TreeNodeProps, "children">) {
-  const [children, setChildren] = useState<Node[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadedCount, setLoadedCount] = useState(0);
-  const loadMoreRef = useRef<HTMLDivElement>(null);
-
-  const loadChildren = useCallback(
-    async (pointer: string, offset = 0, append = false) => {
-      if (loading) return; // Prevent concurrent loads
-
-      setLoading(true);
-      try {
-        const limit = 100; // Load 100 items at a time
-
-        // Try backend first, fallback to frontend if jsonData is available
-        if (jsonData && getValueAtPointer) {
-          // Frontend expansion
-          const value = getValueAtPointer(jsonData, pointer);
-          const allChildNodes = createNodesFromJSON(value, pointer);
-          const newChildren = allChildNodes.slice(offset, offset + limit);
-
-          if (append) {
-            setChildren((prev) => [...prev, ...newChildren]);
-          } else {
-            setChildren(newChildren);
-          }
-          setLoadedCount(offset + newChildren.length);
-          setHasMore(offset + newChildren.length < allChildNodes.length);
-        } else {
-          // Backend expansion
-          const result = await invoke<Node[]>("load_children", {
-            pointer,
-            offset,
-            limit,
-          });
-
-          if (append) {
-            setChildren((prev) => [...prev, ...result]);
-          } else {
-            setChildren(result);
-          }
-          setLoadedCount(offset + result.length);
-          setHasMore(result.length === limit); // If we got a full batch, there might be more
-        }
-      } catch (error) {
-        console.error("Failed to load children:", error);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [jsonData, getValueAtPointer, loading]
-  );
-
-  // Intersection observer for infinite scroll
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const [entry] = entries;
-        if (entry.isIntersecting && hasMore && !loading) {
-          loadChildren(node.pointer, loadedCount, true);
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    if (loadMoreRef.current) {
-      observer.observe(loadMoreRef.current);
-    }
-
-    return () => {
-      if (loadMoreRef.current) {
-        observer.unobserve(loadMoreRef.current);
-      }
-    };
-  }, [hasMore, loading, loadedCount, node.pointer, loadChildren]);
-
-  const handleExpand = useCallback(
-    async (pointer: string) => {
-      if (expandedNodes.has(pointer)) {
-        // Collapse - remove from expanded set
-        onExpand(pointer);
-        return;
-      }
-
-      // Expand - load children if needed
-      if (node.pointer === pointer && children.length === 0) {
-        await loadChildren(pointer, 0, false);
-      }
-      onExpand(pointer);
-    },
-    [node.pointer, children.length, loadChildren, onExpand]
-  );
-
-  return (
-    <TreeNode
-      node={node}
-      level={level}
-      onExpand={handleExpand}
-      expandedNodes={expandedNodes}
-      children={loading ? [] : children}
-      jsonData={jsonData}
-      getValueAtPointer={getValueAtPointer}
-      loadMoreRef={loadMoreRef}
-      hasMore={hasMore}
-      loading={loading}
-    />
-  );
-}
 
 function App() {
   // File operations hook
@@ -328,7 +26,6 @@ function App() {
   } = useFileOperations();
 
   // Other state (non-file related)
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [jsonData, setJsonData] = useState<any>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -435,7 +132,6 @@ function App() {
   }, []);
 
   const handleFileLoad = async (path: string) => {
-    setExpandedNodes(new Set());
     setJsonData(null);
 
     // Clear search when loading new file
@@ -559,7 +255,6 @@ function App() {
   };
 
   const handleFileUnload = async () => {
-    setExpandedNodes(new Set());
     setJsonData(null);
 
     // Clear search state
@@ -574,7 +269,6 @@ function App() {
 
     await unloadFile(() => {
       // Clear tree state
-      setExpandedNodes(new Set());
       setJsonData(null);
 
       // Clear search state
@@ -587,38 +281,6 @@ function App() {
       setMainHasMore(false);
       setMainLoading(false);
     });
-  };
-
-  const getValueAtPointer = (data: any, pointer: string): any => {
-    if (!pointer || pointer === "") return data;
-
-    const parts = pointer.split("/").filter((part) => part !== "");
-    let current = data;
-
-    for (const part of parts) {
-      if (current === null || current === undefined) return null;
-
-      if (Array.isArray(current)) {
-        const index = parseInt(part);
-        current = current[index];
-      } else if (typeof current === "object") {
-        current = current[part];
-      } else {
-        return null;
-      }
-    }
-
-    return current;
-  };
-
-  const handleExpand = (pointer: string) => {
-    const newExpanded = new Set(expandedNodes);
-    if (newExpanded.has(pointer)) {
-      newExpanded.delete(pointer);
-    } else {
-      newExpanded.add(pointer);
-    }
-    setExpandedNodes(newExpanded);
   };
 
   return (
@@ -740,14 +402,11 @@ function App() {
         {nodes.length > 0 && !isSearchMode && (
           <div className="json-viewer">
             {nodes.map((node, index) => (
-              <TreeNodeContainer
+              <Tree
                 key={`${node.pointer}-${index}`}
                 node={node}
                 level={0}
-                onExpand={handleExpand}
-                expandedNodes={expandedNodes}
                 jsonData={jsonData}
-                getValueAtPointer={getValueAtPointer}
               />
             ))}
             {mainHasMore && (
@@ -789,14 +448,7 @@ function App() {
                     </span>
                   </div>
                   <div className="search-result-content">
-                    <TreeNodeContainer
-                      node={result.node}
-                      level={0}
-                      onExpand={handleExpand}
-                      expandedNodes={expandedNodes}
-                      jsonData={jsonData}
-                      getValueAtPointer={getValueAtPointer}
-                    />
+                    <Tree node={result.node} level={0} jsonData={jsonData} />
                   </div>
                   <div className="search-result-match">
                     <strong>Match:</strong> {result.match_text}
