@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
@@ -7,7 +7,7 @@ import type {
   SearchResponse,
   SearchOptions,
 } from "@/shared/types";
-import { useFileOperations } from "@/features/file";
+import { useFileOperations, useRestoreLastFileEffect } from "@/features/file";
 import { Tree } from "@/features/tree";
 import { CopyIcon } from "@/shared/CopyIcon";
 import { ToggleThemeButton } from "@/shared/ToggleThemeButton";
@@ -22,7 +22,6 @@ function App() {
     nodes,
     loadFile,
     unloadFile,
-    restoreLastFile,
     loadMoreNodes,
   } = useFileOperations();
 
@@ -69,10 +68,7 @@ function App() {
   }, [searchOptions]);
 
   // Load last opened file on app startup
-  useEffect(() => {
-    // Restore last opened file on startup
-    restoreLastFile();
-  }, []);
+  useRestoreLastFileEffect();
 
   // Listen for Tauri file drop events (this is the ONLY way that works in Tauri)
   useEffect(() => {
@@ -264,7 +260,7 @@ function App() {
     }
   };
 
-  const handleFileUnload = async () => {
+  const handleFileUnload = useCallback(() => {
     setJsonData(null);
 
     // Clear search state
@@ -277,21 +273,8 @@ function App() {
     setMainHasMore(false);
     setMainLoading(false);
 
-    await unloadFile(() => {
-      // Clear tree state
-      setJsonData(null);
-
-      // Clear search state
-      setIsSearchMode(false);
-      setSearchQuery("");
-      setSearchResults([]);
-      setSearchError("");
-
-      // Clear main level pagination state
-      setMainHasMore(false);
-      setMainLoading(false);
-    });
-  };
+    unloadFile();
+  }, [unloadFile]);
 
   return (
     <div className="app">
