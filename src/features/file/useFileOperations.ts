@@ -27,17 +27,6 @@ export const useFileOperations = () => {
     }
   };
 
-  const loadLastOpenedFile = async (): Promise<string | null> => {
-    try {
-      const filePath = await invoke<string>("load_last_opened_file");
-      console.log("📂 Loaded last opened file from config:", filePath);
-      return filePath;
-    } catch (error) {
-      console.log("No last opened file found or error:", error);
-      return null;
-    }
-  };
-
   const clearLastOpenedFile = async () => {
     try {
       await invoke("clear_last_opened_file");
@@ -82,7 +71,7 @@ export const useFileOperations = () => {
         setLoading(false);
       }
     },
-    [setLoading, setError, setNodes, setFileName]
+    []
   );
 
   const unloadFile = useCallback(
@@ -96,21 +85,6 @@ export const useFileOperations = () => {
       onComplete?.();
     },
     [clearFile]
-  );
-
-  // Auto-load last file on startup
-  const restoreLastFile = useCallback(
-    async (options?: {
-      onSuccess?: (nodes: Node[]) => void;
-      onError?: (error: string) => void;
-    }) => {
-      const lastFilePath = await loadLastOpenedFile();
-      if (lastFilePath) {
-        console.log("🔄 Restoring last opened file:", lastFilePath);
-        await loadFile(lastFilePath, options);
-      }
-    },
-    [loadFile]
   );
 
   // Load more nodes for pagination (root level)
@@ -157,12 +131,10 @@ export const useFileOperations = () => {
     // Actions
     loadFile,
     unloadFile,
-    restoreLastFile,
     loadMoreNodes,
 
     // Config operations (exposed for advanced usage)
     saveLastOpenedFile,
-    loadLastOpenedFile,
     clearLastOpenedFile,
   };
 };
