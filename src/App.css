@@ -19,6 +19,7 @@ body[data-theme="dark"] {
   --text-color: #ecf0f1;
   --border-color: #4a627a;
   --hover-background-color: #4a627a;
+  --hover-background-color-transparent: rgba(74, 98, 122, 0.5);
   --tree-node-hover-bg: #3c5269;
   --tree-node-selected-bg: #4a627a;
   --key-color: #9cdcfe;
@@ -45,6 +46,7 @@ body[data-theme="light"] {
   --text-color: #2c3e50;
   --border-color: #dee2e6;
   --hover-background-color: #e9ecef;
+  --hover-background-color-transparent: rgba(233, 236, 239, 0.5);
   --tree-node-hover-bg: #f1f3f5;
   --tree-node-selected-bg: #e9ecef;
   --key-color: #005cc5;
@@ -86,10 +88,6 @@ body {
   transition: background-color 0.2s ease;
 }
 
-.app.drag-over {
-  background-color: var(--hover-background-color);
-}
-
 /* Sticky header container */
 .sticky-header {
   position: sticky;
@@ -110,7 +108,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(33, 150, 243, 0.1);
+  background-color: var(--hover-background-color-transparent);
   z-index: 1000;
   display: flex;
   align-items: center;

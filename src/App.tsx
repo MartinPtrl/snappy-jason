@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   Node,
   SearchResult,
@@ -11,6 +10,7 @@ import type {
 import { useFileOperations } from "@/features/file";
 import { Tree } from "@/features/tree";
 import { CopyIcon } from "@/shared/CopyIcon";
+import { ToggleThemeButton } from "@/shared/ToggleThemeButton";
 import "./App.css";
 
 function App() {
@@ -55,19 +55,6 @@ function App() {
 
   const searchTimeoutRef = useRef<number | null>(null);
 
-  // Theme state
-  const [theme, setTheme] = useState<"light" | "dark">("dark");
-
-  // Toggle theme
-  const toggleTheme = () => {
-    setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
-  };
-
-  // Apply theme to body
-  useEffect(() => {
-    document.body.setAttribute("data-theme", theme);
-  }, [theme]);
-
   // Re-run search when options change
   useEffect(() => {
     if (isSearchMode && searchQuery.trim()) {
@@ -96,11 +83,6 @@ function App() {
     const setupFileDropListener = async () => {
       try {
         console.log("🔧 Setting up Tauri file drop listeners...");
-        console.log("🔧 Tauri config dragDropEnabled should be true");
-
-        // Check window configuration
-        const window = getCurrentWindow();
-        console.log("🪟 Current window:", window.label);
 
         unlisten = await listen<{ paths: string[] }>(
           "tauri://drag-drop",
@@ -136,7 +118,6 @@ function App() {
         });
 
         console.log("✅ Tauri file drop listeners set up successfully");
-        console.log("✅ Listening to ALL events for debugging");
 
         // Store the all events unlisten function
         return () => {
@@ -313,14 +294,12 @@ function App() {
   };
 
   return (
-    <div className={`app ${isDragOver ? "drag-over" : ""}`}>
+    <div className="app">
       <div className="sticky-header">
         <header className="app-header">
           <h1>Snappy JSON Viewer</h1>
           <div className="header-controls">
-            <button onClick={toggleTheme} className="theme-toggle-button">
-              {theme === "light" ? "🌙" : "☀️"}
-            </button>
+            <ToggleThemeButton />
             <div className="file-input-container">
               {(fileName || nodes.length > 0) && (
                 <button
@@ -405,7 +384,7 @@ function App() {
                         ...prev,
                         caseSensitive: isChecked,
                         ...(isChecked && { regex: false }),
-                      }))
+                      }));
                     }}
                   />
                   Case sensitive
@@ -495,17 +474,23 @@ function App() {
                     </span>
                     <span className="result-path copyable-item">
                       {result.node.pointer || "/"}
-                      <CopyIcon text={result.node.pointer || "/"} title="Copy path" />
+                      <CopyIcon
+                        text={result.node.pointer || "/"}
+                        title="Copy path"
+                      />
                     </span>
                   </div>
                   <div className="search-result-content">
                     <Tree node={result.node} level={0} jsonData={jsonData} />
                   </div>
                   <div className="search-result-match">
-                    <strong>Match:</strong> 
+                    <strong>Match:</strong>
                     <span className="match-text copyable-item">
                       {result.match_text}
-                      <CopyIcon text={result.match_text} title="Copy match text" />
+                      <CopyIcon
+                        text={result.match_text}
+                        title="Copy match text"
+                      />
                     </span>
                     {result.context && (
                       <span className="match-context"> ({result.context})</span>
