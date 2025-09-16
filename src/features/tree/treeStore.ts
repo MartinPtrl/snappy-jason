@@ -7,6 +7,8 @@ export interface TreeState {
   // Actions
   setExpandedNodes: (expandedNodes: Set<string>) => void;
   toggleNode: (pointer: string) => void;
+  expandAll: (nodePointers: string[]) => void;
+  collapseAll: () => void;
   clearTreeState: () => void;
 }
 
@@ -26,6 +28,18 @@ export const useTreeStore = create<TreeState>((set) => ({
         newExpanded.add(pointer);
       }
       return { expandedNodes: newExpanded };
+    }),
+
+  expandAll: (nodePointers) =>
+    set((state) => {
+      const newExpanded = new Set(state.expandedNodes);
+      nodePointers.forEach(pointer => newExpanded.add(pointer));
+      return { expandedNodes: newExpanded };
+    }),
+
+  collapseAll: () =>
+    set({
+      expandedNodes: new Set<string>(),
     }),
 
   clearTreeState: () =>

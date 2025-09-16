@@ -8,7 +8,7 @@ import type {
   SearchOptions,
 } from "@/shared/types";
 import { useFileOperations } from "@/features/file";
-import { Tree } from "@/features/tree";
+import { Tree, useTreeOperations } from "@/features/tree";
 import { CopyIcon } from "@/shared/CopyIcon";
 import { ToggleThemeButton } from "@/shared/ToggleThemeButton";
 import "./App.css";
@@ -56,6 +56,93 @@ function App() {
     useState(false);
 
   const searchTimeoutRef = useRef<number | null>(null);
+
+  // Tree operations
+  const { handleExpandAll, handleCollapseAll, expandedNodes } =
+    useTreeOperations();
+
+  // Helper function to collect expandable node pointers from current level
+  const collectExpandablePointers = (nodeArray: any[]): string[] => {
+    const pointers: string[] = [];
+    nodeArray.forEach((node) => {
+      if (
+        (node.value_type === "object" || node.value_type === "array") &&
+        node.has_children
+      ) {
+        pointers.push(node.pointer);
+      }
+    });
+    return pointers;
+  };
+
+  // Get all currently visible unexpanded nodes by examining the tree structure
+  const getNextLevelExpandableNodes = async (): Promise<string[]> => {
+    // Start with top-level nodes
+    const topLevelPointers = collectExpandablePointers(nodes);
+
+    // Find the first level that has unexpanded nodes
+    let currentPointers = topLevelPointers;
+    const maxDepth = 10; // Prevent infinite loops
+
+    for (let depth = 0; depth < maxDepth; depth++) {
+      const unexpandedAtCurrentLevel = currentPointers.filter(
+        (pointer) => !expandedNodes.has(pointer)
+      );
+
+      if (unexpandedAtCurrentLevel.length > 0) {
+        // Found unexpanded nodes at this level, return them
+        return unexpandedAtCurrentLevel;
+      }
+
+      // All nodes at this level are expanded, get their children for the next level
+      const nextLevelPointers: string[] = [];
+
+      for (const pointer of currentPointers) {
+        try {
+          const children = await invoke<any[]>("load_children", {
+            pointer: pointer,
+            offset: 0,
+            limit: 1000,
+          });
+
+          const expandableChildren = children
+            .filter(
+              (child) =>
+                (child.value_type === "object" ||
+                  child.value_type === "array") &&
+                child.has_children
+            )
+            .map((child) => child.pointer);
+
+          nextLevelPointers.push(...expandableChildren);
+        } catch (error) {
+          console.log(`Failed to load children for ${pointer}:`, error);
+        }
+      }
+
+      if (nextLevelPointers.length === 0) {
+        // No more expandable nodes found
+        break;
+      }
+
+      currentPointers = nextLevelPointers;
+    }
+
+    return [];
+  };
+
+  // Handle expand one level progressively
+  const onExpandAll = async () => {
+    const pointers = await getNextLevelExpandableNodes();
+    if (pointers.length > 0) {
+      handleExpandAll(pointers);
+    }
+  };
+
+  // Handle collapse all
+  const onCollapseAll = () => {
+    handleCollapseAll();
+  };
 
   // Re-run search when options change
   useEffect(() => {
@@ -462,6 +549,22 @@ function App() {
 
         {nodes.length > 0 && !isSearchMode && (
           <div className="json-viewer">
+            <div className="tree-controls">
+              <button
+                className="tree-control-btn"
+                onClick={onExpandAll}
+                title="Expand All Visible Nodes"
+              >
+                Expand 1 level
+              </button>
+              <button
+                className="tree-control-btn"
+                onClick={onCollapseAll}
+                title="Collapse All"
+              >
+                Collapse all
+              </button>
+            </div>
             {nodes.map((node, index) => (
               <Tree key={`${node.pointer}-${index}`} node={node} level={0} />
             ))}

@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { useTreeStore } from "./treeStore";
 
 export const useTreeOperations = () => {
-  const { expandedNodes, toggleNode, clearTreeState } = useTreeStore();
+  const { expandedNodes, toggleNode, expandAll, collapseAll, clearTreeState } = useTreeStore();
 
   // Handle node expansion/collapse
   const handleExpand = useCallback(
@@ -11,6 +11,19 @@ export const useTreeOperations = () => {
     },
     [toggleNode]
   );
+
+  // Expand all nodes with given pointers
+  const handleExpandAll = useCallback(
+    (nodePointers: string[]) => {
+      expandAll(nodePointers);
+    },
+    [expandAll]
+  );
+
+  // Collapse all nodes
+  const handleCollapseAll = useCallback(() => {
+    collapseAll();
+  }, [collapseAll]);
 
   // Clear all tree state (for file unload, etc.)
   const clearTree = useCallback(() => {
@@ -28,6 +41,8 @@ export const useTreeOperations = () => {
 
     // Actions
     handleExpand,
+    handleExpandAll,
+    handleCollapseAll,
     clearTree,
     getValueAtPath,
 
