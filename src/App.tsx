@@ -45,6 +45,7 @@ function App() {
     searchValues: true,
     searchPaths: false,
     caseSensitive: false,
+    regex: false,
   });
   const [searchStats, setSearchStats] = useState({
     totalCount: 0,
@@ -52,6 +53,32 @@ function App() {
   });
 
   const searchTimeoutRef = useRef<number | null>(null);
+
+  // Theme state
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
+
+  // Toggle theme
+  const toggleTheme = () => {
+    setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
+  };
+
+  // Apply theme to body
+  useEffect(() => {
+    document.body.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  // Re-run search when options change
+  useEffect(() => {
+    if (isSearchMode && searchQuery.trim()) {
+      // Debounce search to avoid rapid-fire requests
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+      searchTimeoutRef.current = setTimeout(() => {
+        performSearch(searchQuery);
+      }, 300);
+    }
+  }, [searchOptions]);
 
   // Load last opened file on app startup
   useEffect(() => {
@@ -211,6 +238,7 @@ function App() {
         searchValues: searchOptions.searchValues,
         searchPaths: searchOptions.searchPaths,
         caseSensitive: searchOptions.caseSensitive,
+        regex: searchOptions.regex,
         offset,
         limit,
       });
@@ -288,17 +316,21 @@ function App() {
       <div className="sticky-header">
         <header className="app-header">
           <h1>Snappy JSON Viewer</h1>
-          <div className="file-input-container">
-            {(fileName || nodes.length > 0) && (
-              <button
-                onClick={handleFileUnload}
-                className="file-button unload-button"
-                style={{ marginLeft: "1rem" }}
-                disabled={loading}
-              >
-                Clear
-              </button>
-            )}
+          <div className="header-controls">
+            <button onClick={toggleTheme} className="theme-toggle-button">
+              {theme === "light" ? "🌙" : "☀️"}
+            </button>
+            <div className="file-input-container">
+              {(fileName || nodes.length > 0) && (
+                <button
+                  onClick={handleFileUnload}
+                  className="file-button unload-button"
+                  disabled={loading}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
         </header>
 
@@ -366,14 +398,31 @@ function App() {
                   <input
                     type="checkbox"
                     checked={searchOptions.caseSensitive}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const isChecked = e.target.checked;
                       setSearchOptions((prev) => ({
                         ...prev,
-                        caseSensitive: e.target.checked,
+                        caseSensitive: isChecked,
+                        ...(isChecked && { regex: false }),
                       }))
-                    }
+                    }}
                   />
                   Case sensitive
+                </label>
+                <label className="search-option">
+                  <input
+                    type="checkbox"
+                    checked={searchOptions.regex}
+                    onChange={(e) => {
+                      const isChecked = e.target.checked;
+                      setSearchOptions((prev) => ({
+                        ...prev,
+                        regex: isChecked,
+                        ...(isChecked && { caseSensitive: false }),
+                      }));
+                    }}
+                  />
+                  Regex
                 </label>
               </div>
             </div>

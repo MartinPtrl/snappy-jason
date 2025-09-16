@@ -3394,6 +3394,7 @@ version = "0.1.0"
 dependencies = [
  "parking_lot",
  "rayon",
+ "regex",
  "serde",
  "serde_json",
  "tauri",
