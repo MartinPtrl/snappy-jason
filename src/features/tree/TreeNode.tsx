@@ -26,23 +26,32 @@ export function TreeNode({
     return isExpanded ? "▼ " : "▶ ";
   };
 
-  const getTypeColor = (type: string) => {
+  const getValueClassName = (type: string) => {
     switch (type) {
-      case "object":
-        return "#e67e22";
-      case "array":
-        return "#9b59b6";
       case "string":
-        return "#27ae60";
+        return "node-value-string";
       case "number":
-        return "#3498db";
+        return "node-value-number";
       case "boolean":
-        return "#e74c3c";
+        return "node-value-boolean";
       case "null":
-        return "#95a5a6";
+        return "node-value-null";
       default:
-        return "#34495e";
+        return "";
     }
+  };
+
+  const renderValue = () => {
+    if (hasChildren) {
+      return <span className="node-preview">{node.preview}</span>;
+    }
+    if (!getValueAtPointer || !jsonData) return null;
+    const value = getValueAtPointer(jsonData, node.pointer);
+    return (
+      <span className={getValueClassName(node.value_type)}>
+        {JSON.stringify(value)}
+      </span>
+    );
   };
 
   return (
@@ -53,17 +62,18 @@ export function TreeNode({
         onClick={handleToggle}
       >
         <span className="expand-icon">{getIcon()}</span>
-        <span className="node-key">{node.key || "root"}</span>
-        <span
-          className="node-type"
-          style={{ color: getTypeColor(node.value_type) }}
-        >
-          {node.value_type}
-        </span>
-        {node.child_count > 0 && (
-          <span className="child-count">({node.child_count})</span>
+        <span className="node-key">{node.key || "root"}: </span>
+        {hasChildren ? (
+          <>
+            
+            {node.child_count > 0 && (
+              <span className="child-count">({node.child_count})</span>
+            )}
+            <span className="node-preview">{node.preview}</span>
+          </>
+        ) : (
+          renderValue()
         )}
-        <span className="node-preview">{node.preview}</span>
       </div>
       {isExpanded && children && (
         <div className="node-children">

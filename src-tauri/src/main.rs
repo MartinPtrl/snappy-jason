@@ -58,6 +58,7 @@ fn search(
     search_values: bool, 
     search_paths: bool,
     case_sensitive: bool,
+    regex: bool,
     offset: usize, 
     limit: usize, 
     state: tauri::State<'_, AppState>
@@ -73,10 +74,11 @@ fn search(
         });
     }
     
-    let search_query = if case_sensitive { query } else { query.to_lowercase() };
+    let search_query = if case_sensitive { query.clone() } else { query.to_lowercase() };
+    let re = if regex { regex::Regex::new(&query).ok() } else { None };
     let mut all_results = Vec::new();
     
-    search_recursive(root, "", &search_query, search_keys, search_values, search_paths, case_sensitive, &mut all_results);
+    search_recursive(root, "", &search_query, re.as_ref(), search_keys, search_values, search_paths, case_sensitive, &mut all_results);
     
     let total_count = all_results.len();
     let results: Vec<SearchResult> = all_results
@@ -98,6 +100,7 @@ fn search_recursive(
     value: &Value,
     current_pointer: &str,
     query: &str,
+    re: Option<&regex::Regex>,
     search_keys: bool,
     search_values: bool,
     search_paths: bool,
@@ -107,7 +110,12 @@ fn search_recursive(
     // Search in the current path if enabled
     if search_paths {
         let path_to_check = if case_sensitive { current_pointer.to_string() } else { current_pointer.to_lowercase() };
-        if path_to_check.contains(query) {
+        let matches = if let Some(re) = re {
+            re.is_match(&path_to_check)
+        } else {
+            path_to_check.contains(query)
+        };
+        if matches {
             let node = create_node_for_path(value, current_pointer);
             results.push(SearchResult {
                 node,
@@ -130,7 +138,12 @@ fn search_recursive(
                 // Search in keys if enabled
                 if search_keys {
                     let key_to_check = if case_sensitive { key.to_string() } else { key.to_lowercase() };
-                    if key_to_check.contains(query) {
+                    let matches = if let Some(re) = re {
+                        re.is_match(&key_to_check)
+                    } else {
+                        key_to_check.contains(query)
+                    };
+                    if matches {
                         let node = to_node(current_pointer, Some(key), val);
                         results.push(SearchResult {
                             node,
@@ -146,7 +159,12 @@ fn search_recursive(
                     match val {
                         Value::String(s) => {
                             let value_to_check = if case_sensitive { s.clone() } else { s.to_lowercase() };
-                            if value_to_check.contains(query) {
+                            let matches = if let Some(re) = re {
+                                re.is_match(&value_to_check)
+                            } else {
+                                value_to_check.contains(query)
+                            };
+                            if matches {
                                 let node = to_node(current_pointer, Some(key), val);
                                 results.push(SearchResult {
                                     node,
@@ -159,7 +177,12 @@ fn search_recursive(
                         Value::Number(n) => {
                             let num_str = n.to_string();
                             let value_to_check = if case_sensitive { num_str.clone() } else { num_str.to_lowercase() };
-                            if value_to_check.contains(query) {
+                            let matches = if let Some(re) = re {
+                                re.is_match(&value_to_check)
+                            } else {
+                                value_to_check.contains(query)
+                            };
+                            if matches {
                                 let node = to_node(current_pointer, Some(key), val);
                                 results.push(SearchResult {
                                     node,
@@ -172,7 +195,12 @@ fn search_recursive(
                         Value::Bool(b) => {
                             let bool_str = b.to_string();
                             let value_to_check = if case_sensitive { bool_str.clone() } else { bool_str.to_lowercase() };
-                            if value_to_check.contains(query) {
+                            let matches = if let Some(re) = re {
+                                re.is_match(&value_to_check)
+                            } else {
+                                value_to_check.contains(query)
+                            };
+                            if matches {
                                 let node = to_node(current_pointer, Some(key), val);
                                 results.push(SearchResult {
                                     node,
@@ -184,14 +212,14 @@ fn search_recursive(
                         }
                         _ => {
                             // For objects and arrays, recurse into them
-                            search_recursive(val, &new_pointer, query, search_keys, search_values, search_paths, case_sensitive, results);
+                            search_recursive(val, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, results);
                         }
                     }
                 } else {
                     // If not searching values, still recurse into nested structures
                     match val {
                         Value::Object(_) | Value::Array(_) => {
-                            search_recursive(val, &new_pointer, query, search_keys, search_values, search_paths, case_sensitive, results);
+                            search_recursive(val, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, results);
                         }
                         _ => {} // Don't recurse into primitives when not searching values
                     }
@@ -199,116 +227,13 @@ fn search_recursive(
             }
         }
         Value::Array(arr) => {
-            for (index, val) in arr.iter().enumerate() {
-                let new_pointer = if current_pointer.is_empty() {
-                    format!("/{}", index)
-                } else {
-                    format!("{}/{}", current_pointer, index)
-                };
-
-                // Search in values if it's a primitive value
-                if search_values {
-                    match val {
-                        Value::String(s) => {
-                            let value_to_check = if case_sensitive { s.clone() } else { s.to_lowercase() };
-                            if value_to_check.contains(query) {
-                                let node = to_node(current_pointer, Some(&index.to_string()), val);
-                                results.push(SearchResult {
-                                    node,
-                                    match_type: "value".to_string(),
-                                    match_text: s.clone(),
-                                    context: Some(format!("at index: {}", index)),
-                                });
-                            }
-                        }
-                        Value::Number(n) => {
-                            let num_str = n.to_string();
-                            let value_to_check = if case_sensitive { num_str.clone() } else { num_str.to_lowercase() };
-                            if value_to_check.contains(query) {
-                                let node = to_node(current_pointer, Some(&index.to_string()), val);
-                                results.push(SearchResult {
-                                    node,
-                                    match_type: "value".to_string(),
-                                    match_text: num_str,
-                                    context: Some(format!("at index: {}", index)),
-                                });
-                            }
-                        }
-                        Value::Bool(b) => {
-                            let bool_str = b.to_string();
-                            let value_to_check = if case_sensitive { bool_str.clone() } else { bool_str.to_lowercase() };
-                            if value_to_check.contains(query) {
-                                let node = to_node(current_pointer, Some(&index.to_string()), val);
-                                results.push(SearchResult {
-                                    node,
-                                    match_type: "value".to_string(),
-                                    match_text: bool_str,
-                                    context: Some(format!("at index: {}", index)),
-                                });
-                            }
-                        }
-                        _ => {
-                            // For objects and arrays, recurse into them
-                            search_recursive(val, &new_pointer, query, search_keys, search_values, search_paths, case_sensitive, results);
-                        }
-                    }
-                } else {
-                    // If not searching values, still recurse into nested structures
-                    match val {
-                        Value::Object(_) | Value::Array(_) => {
-                            search_recursive(val, &new_pointer, query, search_keys, search_values, search_paths, case_sensitive, results);
-                        }
-                        _ => {} // Don't recurse into primitives when not searching values
-                    }
-                }
+            for (index, item) in arr.iter().enumerate() {
+                let new_pointer = format!("{}/{}", current_pointer, index);
+                search_recursive(item, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, results);
             }
         }
-        _ => {
-            // For primitive values at root level, search if enabled
-            if search_values {
-                match value {
-                    Value::String(s) => {
-                        let value_to_check = if case_sensitive { s.clone() } else { s.to_lowercase() };
-                        if value_to_check.contains(query) {
-                            let node = create_node_for_path(value, current_pointer);
-                            results.push(SearchResult {
-                                node,
-                                match_type: "value".to_string(),
-                                match_text: s.clone(),
-                                context: None,
-                            });
-                        }
-                    }
-                    Value::Number(n) => {
-                        let num_str = n.to_string();
-                        let value_to_check = if case_sensitive { num_str.clone() } else { num_str.to_lowercase() };
-                        if value_to_check.contains(query) {
-                            let node = create_node_for_path(value, current_pointer);
-                            results.push(SearchResult {
-                                node,
-                                match_type: "value".to_string(),
-                                match_text: num_str,
-                                context: None,
-                            });
-                        }
-                    }
-                    Value::Bool(b) => {
-                        let bool_str = b.to_string();
-                        let value_to_check = if case_sensitive { bool_str.clone() } else { bool_str.to_lowercase() };
-                        if value_to_check.contains(query) {
-                            let node = create_node_for_path(value, current_pointer);
-                            results.push(SearchResult {
-                                node,
-                                match_type: "value".to_string(),
-                                match_text: bool_str,
-                                context: None,
-                            });
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
+        // Primitives are handled inside object/array iteration for values
+        _ => {}
     }
 }
 

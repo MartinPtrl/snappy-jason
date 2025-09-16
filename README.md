@@ -1,6 +1,6 @@
 # Snappy Jason - Fast JSON Viewer
 
-A lightning-fast, desktop JSON viewer built with Tauri, React, and Rust. Snappy Jason provides an intuitive interface for viewing, searching, and navigating large JSON files with ease.
+A lightning-fast, desktop JSON viewer built with Tauri, React, and Rust. Snappy Jason provides an intuitive interface for viewing, searching, and navigating large JSON files with ease!
 
 ![Snappy Jason Main Interface](public/snappy_jason_main.png)
 
