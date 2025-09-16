@@ -37,7 +37,6 @@ export interface TreeNodeProps {
   onExpand: (pointer: string) => void;
   expandedNodes: Set<string>;
   children?: Node[];
-  jsonData?: any;
   getValueAtPointer?: (data: any, pointer: string) => any;
   hasMore?: boolean;
   loading?: boolean;

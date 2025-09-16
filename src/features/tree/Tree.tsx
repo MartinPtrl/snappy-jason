@@ -1,17 +1,15 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Node } from "@/shared/types";
-import { createNodesFromJSON, getValueAtPointer } from "./treeUtils";
 import { useTreeOperations } from "./useTreeOperations";
 import { CopyIcon } from "@/shared/CopyIcon";
 
 interface TreeProps {
   node: Node;
   level: number;
-  jsonData: any;
 }
 
-export function Tree({ node, level, jsonData }: TreeProps) {
+export function Tree({ node, level }: TreeProps) {
   const { expandedNodes, handleExpand } = useTreeOperations();
   const [children, setChildren] = useState<Node[]>([]);
   const [loading, setLoading] = useState(false);
@@ -30,43 +28,27 @@ export function Tree({ node, level, jsonData }: TreeProps) {
       try {
         const limit = 100; // Load 100 items at a time
 
-        // Try backend first, fallback to frontend if jsonData is available
-        if (jsonData) {
-          // Frontend expansion
-          const value = getValueAtPointer(jsonData, pointer);
-          const allChildNodes = createNodesFromJSON(value, pointer);
-          const newChildren = allChildNodes.slice(offset, offset + limit);
+        // Backend expansion
+        const result = await invoke<Node[]>("load_children", {
+          pointer,
+          offset,
+          limit,
+        });
 
-          if (append) {
-            setChildren((prev) => [...prev, ...newChildren]);
-          } else {
-            setChildren(newChildren);
-          }
-          setLoadedCount(offset + newChildren.length);
-          setHasMore(offset + newChildren.length < allChildNodes.length);
+        if (append) {
+          setChildren((prev) => [...prev, ...result]);
         } else {
-          // Backend expansion
-          const result = await invoke<Node[]>("load_children", {
-            pointer,
-            offset,
-            limit,
-          });
-
-          if (append) {
-            setChildren((prev) => [...prev, ...result]);
-          } else {
-            setChildren(result);
-          }
-          setLoadedCount(offset + result.length);
-          setHasMore(result.length === limit); // If we got a full batch, there might be more
+          setChildren(result);
         }
+        setLoadedCount(offset + result.length);
+        setHasMore(result.length === limit); // If we got a full batch, there might be more
       } catch (error) {
         console.error("Failed to load children:", error);
       } finally {
         setLoading(false);
       }
     },
-    [jsonData, loading]
+    [loading]
   );
 
   // Intersection observer for infinite scroll
@@ -169,7 +151,6 @@ export function Tree({ node, level, jsonData }: TreeProps) {
               key={`${child.pointer}-${index}`}
               node={child}
               level={level + 1}
-              jsonData={jsonData}
             />
           ))}
           {hasMore && (

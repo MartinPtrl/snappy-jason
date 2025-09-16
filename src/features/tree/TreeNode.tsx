@@ -6,7 +6,6 @@ export function TreeNode({
   onExpand,
   expandedNodes,
   children,
-  jsonData,
   getValueAtPointer,
   hasMore,
   loading,
@@ -26,32 +25,10 @@ export function TreeNode({
     return isExpanded ? "▼ " : "▶ ";
   };
 
-  const getValueClassName = (type: string) => {
-    switch (type) {
-      case "string":
-        return "node-value-string";
-      case "number":
-        return "node-value-number";
-      case "boolean":
-        return "node-value-boolean";
-      case "null":
-        return "node-value-null";
-      default:
-        return "";
-    }
-  };
-
   const renderValue = () => {
     if (hasChildren) {
       return <span className="node-preview">{node.preview}</span>;
     }
-    if (!getValueAtPointer || !jsonData) return null;
-    const value = getValueAtPointer(jsonData, node.pointer);
-    return (
-      <span className={getValueClassName(node.value_type)}>
-        {JSON.stringify(value)}
-      </span>
-    );
   };
 
   return (
@@ -65,7 +42,6 @@ export function TreeNode({
         <span className="node-key">{node.key || "root"}: </span>
         {hasChildren ? (
           <>
-            
             {node.child_count > 0 && (
               <span className="child-count">({node.child_count})</span>
             )}
@@ -84,7 +60,6 @@ export function TreeNode({
               level={level + 1}
               onExpand={onExpand}
               expandedNodes={expandedNodes}
-              jsonData={jsonData}
               getValueAtPointer={getValueAtPointer}
             />
           ))}
