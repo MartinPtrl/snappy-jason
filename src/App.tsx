@@ -7,7 +7,7 @@ import type {
   SearchResponse,
   SearchOptions,
 } from "@/shared/types";
-import { useFileOperations, useRestoreLastFileEffect } from "@/features/file";
+import { useFileOperations } from "@/features/file";
 import { Tree } from "@/features/tree";
 import { CopyIcon } from "@/shared/CopyIcon";
 import { ToggleThemeButton } from "@/shared/ToggleThemeButton";
@@ -21,6 +21,7 @@ function App() {
     error,
     nodes,
     loadFile,
+    loadLastOpenedFile,
     unloadFile,
     loadMoreNodes,
   } = useFileOperations();
@@ -72,8 +73,33 @@ function App() {
     }
   }, [searchOptions]);
 
+  const handleFileLoad = useCallback(async (path: string) => {
+    // Clear search when loading new file
+    setIsSearchMode(false);
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchError("");
+
+    await loadFile(path, {
+      onSuccess: (nodes: Node[]) => {
+        // Check if there might be more nodes at the root level
+        setMainHasMore(nodes.length === 100);
+      },
+      onError: (error: string) => {
+        console.error("File load error:", error);
+      },
+    });
+  }, []);
+
   // Load last opened file on app startup
-  useRestoreLastFileEffect();
+  useEffect(() => {
+    loadLastOpenedFile({
+      onSuccess: (nodes: Node[]) => {
+        // Check if there might be more nodes at the root level
+        setMainHasMore(nodes.length === 100);
+      },
+    });
+  }, []);
 
   // Listen for Tauri file drop events (this is the ONLY way that works in Tauri)
   useEffect(() => {
@@ -140,24 +166,6 @@ function App() {
       if (unlistenCancelled) unlistenCancelled();
     };
   }, []);
-
-  const handleFileLoad = async (path: string) => {
-    // Clear search when loading new file
-    setIsSearchMode(false);
-    setSearchQuery("");
-    setSearchResults([]);
-    setSearchError("");
-
-    await loadFile(path, {
-      onSuccess: (nodes: Node[]) => {
-        // Check if there might be more nodes at the root level
-        setMainHasMore(nodes.length === 100);
-      },
-      onError: (error: string) => {
-        console.error("File load error:", error);
-      },
-    });
-  };
 
   // Main level infinite scroll observer
   useEffect(() => {
