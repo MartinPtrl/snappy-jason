@@ -6,9 +6,6 @@ use serde::Serialize;
 use serde_json::Value;
 use std::{fs::{File, create_dir_all}, io::BufReader, sync::Arc, path::PathBuf};
 use tauri::Manager;
-fn to_node(parent_ptr: &str, key: Option<&str>, v: &Value) -> Node {
-    to_node_with_truncation(parent_ptr, key, v, Some(120))
-}
 
 fn to_node_with_truncation(parent_ptr: &str, key: Option<&str>, v: &Value, truncate_limit: Option<usize>) -> Node {
     let (value_type, has_children, child_count, preview) = match v {
