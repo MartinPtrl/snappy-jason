@@ -45,16 +45,22 @@ function App() {
     searchPaths: false,
     caseSensitive: false,
     regex: false,
+    wholeWord: false,
   });
   const [searchStats, setSearchStats] = useState({
     totalCount: 0,
     hasMore: false,
   });
+  const [showSearchTargetNotification, setShowSearchTargetNotification] =
+    useState(false);
 
   const searchTimeoutRef = useRef<number | null>(null);
 
   // Re-run search when options change
   useEffect(() => {
+    // Clear search target notification when search options change
+    setShowSearchTargetNotification(false);
+
     if (isSearchMode && searchQuery.trim()) {
       // Debounce search to avoid rapid-fire requests
       if (searchTimeoutRef.current) {
@@ -199,12 +205,25 @@ function App() {
       setSearchResults([]);
       setSearchStats({ totalCount: 0, hasMore: false });
       setIsSearchMode(false);
+      setShowSearchTargetNotification(false);
+      return;
+    }
+
+    // Check if at least one search target is selected
+    if (
+      !searchOptions.searchKeys &&
+      !searchOptions.searchValues &&
+      !searchOptions.searchPaths
+    ) {
+      setShowSearchTargetNotification(true);
+      setTimeout(() => setShowSearchTargetNotification(false), 3000); // Hide after 3 seconds
       return;
     }
 
     setSearchLoading(true);
     setSearchError("");
     setIsSearchMode(true);
+    setShowSearchTargetNotification(false);
 
     try {
       const response = await invoke<SearchResponse>("search", {
@@ -214,6 +233,7 @@ function App() {
         searchPaths: searchOptions.searchPaths,
         caseSensitive: searchOptions.caseSensitive,
         regex: searchOptions.regex,
+        wholeWord: searchOptions.wholeWord,
         offset,
         limit,
       });
@@ -352,7 +372,7 @@ function App() {
                   />
                   Paths
                 </label>
-                <label>
+                <label title="Case sensitive">
                   <input
                     type="checkbox"
                     checked={searchOptions.caseSensitive}
@@ -365,9 +385,24 @@ function App() {
                       }));
                     }}
                   />
-                  Case sensitive
+                  Aa
                 </label>
-                <label className="search-option">
+                <label className="search-option" title="Match whole word">
+                  <input
+                    type="checkbox"
+                    checked={searchOptions.wholeWord}
+                    onChange={(e) => {
+                      const isChecked = e.target.checked;
+                      setSearchOptions((prev) => ({
+                        ...prev,
+                        wholeWord: isChecked,
+                        ...(isChecked && { regex: false }),
+                      }));
+                    }}
+                  />
+                  |w|
+                </label>
+                <label className="search-option" title="Regular expression">
                   <input
                     type="checkbox"
                     checked={searchOptions.regex}
@@ -376,11 +411,14 @@ function App() {
                       setSearchOptions((prev) => ({
                         ...prev,
                         regex: isChecked,
-                        ...(isChecked && { caseSensitive: false }),
+                        ...(isChecked && {
+                          caseSensitive: false,
+                          wholeWord: false,
+                        }),
                       }));
                     }}
                   />
-                  Regex
+                  .*
                 </label>
               </div>
             </div>
@@ -388,6 +426,14 @@ function App() {
             {searchLoading && (
               <div className="search-loading">🔍 Searching...</div>
             )}
+
+            {showSearchTargetNotification && (
+              <div className="search-target-notification">
+                ⚠️ Please select at least one search target: Keys, Values, or
+                Paths
+              </div>
+            )}
+
             {searchError && (
               <div className="error-message">❌ {searchError}</div>
             )}
@@ -437,7 +483,10 @@ function App() {
           <div className="search-results">
             <div className="search-results-list">
               {searchResults.map((result, index) => (
-                <div key={`search-${index}`} className="search-result-item">
+                <div
+                  key={`search-result-${result.node.pointer}-${index}`}
+                  className="search-result-item"
+                >
                   <div className="search-result-header">
                     <span
                       className="match-type-badge"
@@ -454,20 +503,12 @@ function App() {
                     </span>
                   </div>
                   <div className="search-result-content">
-                    <Tree node={result.node} level={0} />
-                  </div>
-                  <div className="search-result-match">
-                    <strong>Match:</strong>
-                    <span className="match-text copyable-item">
-                      {result.match_text}
-                      <CopyIcon
-                        text={result.match_text}
-                        title="Copy match text"
-                      />
-                    </span>
-                    {result.context && (
-                      <span className="match-context"> ({result.context})</span>
-                    )}
+                    <Tree
+                      node={result.node}
+                      level={0}
+                      searchQuery={searchQuery}
+                      searchOptions={searchOptions}
+                    />
                   </div>
                 </div>
               ))}
