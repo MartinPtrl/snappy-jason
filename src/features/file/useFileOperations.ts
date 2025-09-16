@@ -18,23 +18,23 @@ export const useFileOperations = () => {
   } = useFileStore();
 
   // Config operations
-  const saveLastOpenedFile = async (filePath: string) => {
+  const saveLastOpenedFile = useCallback(async (filePath: string) => {
     try {
       await invoke("save_last_opened_file", { filePath });
       console.log("💾 Saved last opened file to config:", filePath);
     } catch (error) {
       console.error("Failed to save last opened file:", error);
     }
-  };
+  }, []);
 
-  const clearLastOpenedFile = async () => {
+  const clearLastOpenedFile = useCallback(async () => {
     try {
       await invoke("clear_last_opened_file");
       console.log("🗑️ Cleared last opened file from config");
     } catch (error) {
       console.error("Failed to clear last opened file:", error);
     }
-  };
+  }, []);
 
   // File operations
   const loadFile = useCallback(
@@ -69,6 +69,24 @@ export const useFileOperations = () => {
         options?.onError?.(errorMessage);
       } finally {
         setLoading(false);
+      }
+    },
+    []
+  );
+
+  const loadLastOpenedFile = useCallback(
+    async (options?: {
+      onSuccess?: (nodes: Node[]) => void;
+      onError?: (error: string) => void;
+    }) => {
+      try {
+        const filePath = await invoke<string>("load_last_opened_file");
+        console.log("📂 Loaded last opened file from config:", filePath);
+        if (filePath) {
+          loadFile(filePath, options);
+        }
+      } catch (error) {
+        console.log("No last opened file found or error:", error);
       }
     },
     []
@@ -130,6 +148,7 @@ export const useFileOperations = () => {
 
     // Actions
     loadFile,
+    loadLastOpenedFile,
     unloadFile,
     loadMoreNodes,
 
