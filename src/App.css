@@ -560,6 +560,80 @@ body {
   margin: 0.5rem 0;
 }
 
+/* Copy Icon Styles */
+.copy-icon {
+  background: none;
+  border: none;
+  padding: 2px;
+  margin-left: 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--text-color);
+  opacity: 0;
+  transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.copy-icon:hover {
+  background-color: var(--hover-background-color);
+  opacity: 1 !important;
+}
+
+.copy-icon.copied {
+  color: #27ae60;
+  opacity: 1 !important;
+}
+
+.copy-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Show copy icons on hover of parent elements */
+.copyable-item {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+}
+
+.copyable-item:hover .copy-icon {
+  opacity: 0.6;
+}
+
+.copyable-item .copy-icon:hover {
+  opacity: 1 !important;
+}
+
+/* Specific styles for different contexts */
+.node-key.copyable-item {
+  margin-right: 0.5rem;
+}
+
+.node-preview.copyable-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.match-text.copyable-item {
+  margin-left: 0.25rem;
+}
+
+.result-path.copyable-item {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-color);
+  opacity: 0.8;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
 /* Search responsive design */
 @media (max-width: 768px) {
   .search-options {

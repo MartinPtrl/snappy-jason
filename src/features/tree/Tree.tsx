@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Node } from "@/shared/types";
 import { createNodesFromJSON, getValueAtPointer } from "./treeUtils";
 import { useTreeOperations } from "./useTreeOperations";
+import { CopyIcon } from "@/shared/CopyIcon";
 
 interface TreeProps {
   node: Node;
@@ -143,7 +144,10 @@ export function Tree({ node, level, jsonData }: TreeProps) {
         onClick={handleToggle}
       >
         <span className="expand-icon">{getIcon()}</span>
-        <span className="node-key">{node.key || "root"}</span>
+        <span className="node-key copyable-item">
+          {node.key || "root"}
+          <CopyIcon text={node.key || "root"} title="Copy key" />
+        </span>
         <span
           className="node-type"
           style={{ color: getTypeColor(node.value_type) }}
@@ -153,7 +157,10 @@ export function Tree({ node, level, jsonData }: TreeProps) {
         {node.child_count > 0 && (
           <span className="child-count">({node.child_count})</span>
         )}
-        <span className="node-preview">{node.preview}</span>
+        <span className="node-preview copyable-item">
+          {node.preview}
+          <CopyIcon text={node.preview} title="Copy value" />
+        </span>
       </div>
       {isExpanded && (
         <div className="node-children">

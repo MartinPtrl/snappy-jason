@@ -10,6 +10,7 @@ import type {
 } from "@/shared/types";
 import { useFileOperations } from "@/features/file";
 import { Tree } from "@/features/tree";
+import { CopyIcon } from "@/shared/CopyIcon";
 import "./App.css";
 
 function App() {
@@ -492,15 +493,20 @@ function App() {
                     >
                       {result.match_type}
                     </span>
-                    <span className="result-path">
+                    <span className="result-path copyable-item">
                       {result.node.pointer || "/"}
+                      <CopyIcon text={result.node.pointer || "/"} title="Copy path" />
                     </span>
                   </div>
                   <div className="search-result-content">
                     <Tree node={result.node} level={0} jsonData={jsonData} />
                   </div>
                   <div className="search-result-match">
-                    <strong>Match:</strong> {result.match_text}
+                    <strong>Match:</strong> 
+                    <span className="match-text copyable-item">
+                      {result.match_text}
+                      <CopyIcon text={result.match_text} title="Copy match text" />
+                    </span>
                     {result.context && (
                       <span className="match-context"> ({result.context})</span>
                     )}
