@@ -1,15 +1,18 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Node } from "@/shared/types";
+import type { Node, SearchOptions } from "@/shared/types";
 import { useTreeOperations } from "./useTreeOperations";
 import { CopyIcon } from "@/shared/CopyIcon";
+import { highlightText } from "@/shared/highlightUtils";
 
 interface TreeProps {
   node: Node;
   level: number;
+  searchQuery?: string;
+  searchOptions?: SearchOptions;
 }
 
-export function Tree({ node, level }: TreeProps) {
+export function Tree({ node, level, searchQuery, searchOptions }: TreeProps) {
   const { expandedNodes, handleExpand } = useTreeOperations();
   const [children, setChildren] = useState<Node[]>([]);
   const [loading, setLoading] = useState(false);
@@ -19,6 +22,11 @@ export function Tree({ node, level }: TreeProps) {
 
   const isExpanded = expandedNodes.has(node.pointer);
   const hasChildren = node.has_children;
+
+  // Force re-render when expanded state changes
+  useEffect(() => {
+    // This effect ensures the component re-renders when expanded state changes
+  }, [isExpanded, expandedNodes]);
 
   const loadChildren = useCallback(
     async (pointer: string, offset = 0, append = false) => {
@@ -50,6 +58,20 @@ export function Tree({ node, level }: TreeProps) {
     },
     [loading]
   );
+
+  // Load children if this node should be expanded but has no children loaded
+  useEffect(() => {
+    if (isExpanded && hasChildren && children.length === 0 && !loading) {
+      loadChildren(node.pointer, 0, false);
+    }
+  }, [
+    isExpanded,
+    hasChildren,
+    children.length,
+    loading,
+    node.pointer,
+    loadChildren,
+  ]);
 
   // Intersection observer for infinite scroll
   useEffect(() => {
@@ -94,10 +116,10 @@ export function Tree({ node, level }: TreeProps) {
     loadChildren,
   ]);
 
-  const getIcon = () => {
+  const getIcon = useMemo(() => {
     if (!hasChildren) return "  ";
     return isExpanded ? "▼ " : "▶ ";
-  };
+  }, [hasChildren, isExpanded]);
 
   const getTypeColor = (type: string) => {
     switch (type) {
@@ -125,9 +147,11 @@ export function Tree({ node, level }: TreeProps) {
         style={{ paddingLeft: `${level * 20}px` }}
         onClick={handleToggle}
       >
-        <span className="expand-icon">{getIcon()}</span>
+        <span className="expand-icon">{getIcon}</span>
         <span className="node-key copyable-item">
-          {node.key || "root"}
+          {searchQuery && searchOptions
+            ? highlightText(node.key || "root", searchQuery, searchOptions)
+            : node.key || "root"}
           <CopyIcon text={node.key || "root"} title="Copy key" />
         </span>
         <span
@@ -140,7 +164,9 @@ export function Tree({ node, level }: TreeProps) {
           <span className="child-count">({node.child_count})</span>
         )}
         <span className="node-preview copyable-item">
-          {node.preview}
+          {searchQuery && searchOptions
+            ? highlightText(node.preview, searchQuery, searchOptions)
+            : node.preview}
           <CopyIcon text={node.preview} title="Copy value" />
         </span>
       </div>
@@ -151,6 +177,8 @@ export function Tree({ node, level }: TreeProps) {
               key={`${child.pointer}-${index}`}
               node={child}
               level={level + 1}
+              searchQuery={searchQuery}
+              searchOptions={searchOptions}
             />
           ))}
           {hasMore && (

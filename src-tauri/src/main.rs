@@ -6,6 +6,32 @@ use serde::Serialize;
 use serde_json::Value;
 use std::{fs::{File, create_dir_all}, io::BufReader, sync::Arc, path::PathBuf};
 use tauri::Manager;
+fn to_node(parent_ptr: &str, key: Option<&str>, v: &Value) -> Node {
+    to_node_with_truncation(parent_ptr, key, v, Some(120))
+}
+
+fn to_node_with_truncation(parent_ptr: &str, key: Option<&str>, v: &Value, truncate_limit: Option<usize>) -> Node {
+    let (value_type, has_children, child_count, preview) = match v {
+        Value::Object(m) => ("object".into(), !m.is_empty(), m.len(), format!("{{…}} {} keys", m.len())),
+        Value::Array(a) => ("array".into(), !a.is_empty(), a.len(), format!("[…] {} items", a.len())),
+        Value::String(s) => ("string".into(), false, 0, 
+            if let Some(limit) = truncate_limit {
+                truncate(s, limit)
+            } else {
+                s.to_string()
+            }
+        ),
+        Value::Number(n) => ("number".into(), false, 0, n.to_string()),
+        Value::Bool(b) => ("boolean".into(), false, 0, b.to_string()),
+        Value::Null => ("null".into(), false, 0, "null".into()),
+    };
+    let pointer = if let Some(k) = key {
+        format!("{}/{}", parent_ptr, escape_pointer_token(k))
+    } else {
+        parent_ptr.to_string()
+    };
+    Node { pointer, key: key.map(|s| s.to_string()), value_type, has_children, child_count, preview }
+}
 
 #[derive(Serialize)]
 struct Node {
@@ -59,6 +85,7 @@ fn search(
     search_paths: bool,
     case_sensitive: bool,
     regex: bool,
+    whole_word: bool,
     offset: usize, 
     limit: usize, 
     state: tauri::State<'_, AppState>
@@ -78,7 +105,7 @@ fn search(
     let re = if regex { regex::Regex::new(&query).ok() } else { None };
     let mut all_results = Vec::new();
     
-    search_recursive(root, "", &search_query, re.as_ref(), search_keys, search_values, search_paths, case_sensitive, &mut all_results);
+    search_recursive(root, "", &search_query, re.as_ref(), search_keys, search_values, search_paths, case_sensitive, whole_word, &mut all_results);
     
     let total_count = all_results.len();
     let results: Vec<SearchResult> = all_results
@@ -96,6 +123,22 @@ fn search(
     })
 }
 
+fn text_matches(text: &str, query: &str, re: Option<&regex::Regex>, whole_word: bool) -> bool {
+    if let Some(re) = re {
+        // If regex is enabled, use regex matching
+        re.is_match(text)
+    } else if whole_word {
+        // For whole word matching without regex, we need to check word boundaries
+        // Note: text and query should already be case-normalized if needed
+        text.split(|c: char| !c.is_alphanumeric())
+            .any(|word| word == query)
+    } else {
+        // Regular substring search
+        // Note: text and query should already be case-normalized if needed
+        text.contains(query)
+    }
+}
+
 fn search_recursive(
     value: &Value,
     current_pointer: &str,
@@ -105,16 +148,13 @@ fn search_recursive(
     search_values: bool,
     search_paths: bool,
     case_sensitive: bool,
+    whole_word: bool,
     results: &mut Vec<SearchResult>,
 ) {
     // Search in the current path if enabled
     if search_paths {
         let path_to_check = if case_sensitive { current_pointer.to_string() } else { current_pointer.to_lowercase() };
-        let matches = if let Some(re) = re {
-            re.is_match(&path_to_check)
-        } else {
-            path_to_check.contains(query)
-        };
+        let matches = text_matches(&path_to_check, query, re, whole_word);
         if matches {
             let node = create_node_for_path(value, current_pointer);
             results.push(SearchResult {
@@ -138,13 +178,9 @@ fn search_recursive(
                 // Search in keys if enabled
                 if search_keys {
                     let key_to_check = if case_sensitive { key.to_string() } else { key.to_lowercase() };
-                    let matches = if let Some(re) = re {
-                        re.is_match(&key_to_check)
-                    } else {
-                        key_to_check.contains(query)
-                    };
+                    let matches = text_matches(&key_to_check, query, re, whole_word);
                     if matches {
-                        let node = to_node(current_pointer, Some(key), val);
+                        let node = to_node_with_truncation(current_pointer, Some(key), val, None);
                         results.push(SearchResult {
                             node,
                             match_type: "key".to_string(),
@@ -159,13 +195,9 @@ fn search_recursive(
                     match val {
                         Value::String(s) => {
                             let value_to_check = if case_sensitive { s.clone() } else { s.to_lowercase() };
-                            let matches = if let Some(re) = re {
-                                re.is_match(&value_to_check)
-                            } else {
-                                value_to_check.contains(query)
-                            };
+                            let matches = text_matches(&value_to_check, query, re, whole_word);
                             if matches {
-                                let node = to_node(current_pointer, Some(key), val);
+                                let node = to_node_with_truncation(current_pointer, Some(key), val, None);
                                 results.push(SearchResult {
                                     node,
                                     match_type: "value".to_string(),
@@ -177,13 +209,9 @@ fn search_recursive(
                         Value::Number(n) => {
                             let num_str = n.to_string();
                             let value_to_check = if case_sensitive { num_str.clone() } else { num_str.to_lowercase() };
-                            let matches = if let Some(re) = re {
-                                re.is_match(&value_to_check)
-                            } else {
-                                value_to_check.contains(query)
-                            };
+                            let matches = text_matches(&value_to_check, query, re, whole_word);
                             if matches {
-                                let node = to_node(current_pointer, Some(key), val);
+                                let node = to_node_with_truncation(current_pointer, Some(key), val, None);
                                 results.push(SearchResult {
                                     node,
                                     match_type: "value".to_string(),
@@ -195,13 +223,9 @@ fn search_recursive(
                         Value::Bool(b) => {
                             let bool_str = b.to_string();
                             let value_to_check = if case_sensitive { bool_str.clone() } else { bool_str.to_lowercase() };
-                            let matches = if let Some(re) = re {
-                                re.is_match(&value_to_check)
-                            } else {
-                                value_to_check.contains(query)
-                            };
+                            let matches = text_matches(&value_to_check, query, re, whole_word);
                             if matches {
-                                let node = to_node(current_pointer, Some(key), val);
+                                let node = to_node_with_truncation(current_pointer, Some(key), val, None);
                                 results.push(SearchResult {
                                     node,
                                     match_type: "value".to_string(),
@@ -212,14 +236,14 @@ fn search_recursive(
                         }
                         _ => {
                             // For objects and arrays, recurse into them
-                            search_recursive(val, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, results);
+                            search_recursive(val, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, whole_word, results);
                         }
                     }
                 } else {
                     // If not searching values, still recurse into nested structures
                     match val {
                         Value::Object(_) | Value::Array(_) => {
-                            search_recursive(val, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, results);
+                            search_recursive(val, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, whole_word, results);
                         }
                         _ => {} // Don't recurse into primitives when not searching values
                     }
@@ -229,7 +253,7 @@ fn search_recursive(
         Value::Array(arr) => {
             for (index, item) in arr.iter().enumerate() {
                 let new_pointer = format!("{}/{}", current_pointer, index);
-                search_recursive(item, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, results);
+                search_recursive(item, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, whole_word, results);
             }
         }
         // Primitives are handled inside object/array iteration for values
@@ -271,34 +295,17 @@ fn list_children(root: &Value, pointer: &str, offset: usize, limit: usize) -> Ve
             .iter()
             .skip(offset)
             .take(limit)
-            .map(|(k, v)| to_node(pointer, Some(k), v))
+            .map(|(k, v)| to_node_with_truncation(pointer, Some(k), v, None))
             .collect(),
         Value::Array(arr) => arr
             .iter()
             .enumerate()
             .skip(offset)
             .take(limit)
-            .map(|(i, v)| to_node(pointer, Some(&i.to_string()), v))
+            .map(|(i, v)| to_node_with_truncation(pointer, Some(&i.to_string()), v, None))
             .collect(),
         _ => vec![],
     }
-}
-
-fn to_node(parent_ptr: &str, key: Option<&str>, v: &Value) -> Node {
-    let (value_type, has_children, child_count, preview) = match v {
-        Value::Object(m) => ("object".into(), !m.is_empty(), m.len(), format!("{{…}} {} keys", m.len())),
-        Value::Array(a) => ("array".into(), !a.is_empty(), a.len(), format!("[…] {} items", a.len())),
-        Value::String(s) => ("string".into(), false, 0, truncate(s, 120)),
-        Value::Number(n) => ("number".into(), false, 0, n.to_string()),
-        Value::Bool(b) => ("boolean".into(), false, 0, b.to_string()),
-        Value::Null => ("null".into(), false, 0, "null".into()),
-    };
-    let pointer = if let Some(k) = key {
-        format!("{}/{}", parent_ptr, escape_pointer_token(k))
-    } else {
-        parent_ptr.to_string()
-    };
-    Node { pointer, key: key.map(|s| s.to_string()), value_type, has_children, child_count, preview }
 }
 
 fn truncate(s: &str, max: usize) -> String {

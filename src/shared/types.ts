@@ -28,6 +28,7 @@ export interface SearchOptions {
   searchPaths: boolean;
   caseSensitive: boolean;
   regex: boolean;
+  wholeWord: boolean;
 }
 
 // Tree component props
