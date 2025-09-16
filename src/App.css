@@ -267,6 +267,40 @@ body {
   background: var(--background-color);
 }
 
+/* Tree Controls */
+.tree-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tree-control-btn {
+  background: var(--button-primary-bg);
+  color: white;
+  border: none;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: auto;
+  white-space: nowrap;
+}
+
+.tree-control-btn:hover {
+  background: var(--button-primary-hover-bg);
+}
+
+.tree-control-btn:active {
+  background: #21618c;
+}
+
 .tree-node {
   margin: 0;
 }
@@ -643,7 +677,31 @@ body {
   flex-shrink: 0;
 }
 
+/* Expand Icon Styles */
+.expand-icon-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  margin-left: 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--text-color);
+  opacity: 0;
+  transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  position: relative;
+  flex-shrink: 0;
+}
+
 .copy-icon:hover {
+  background-color: var(--hover-background-color);
+  opacity: 1 !important;
+}
+
+.expand-icon-btn:hover {
   background-color: var(--hover-background-color);
   opacity: 1 !important;
 }
@@ -653,23 +711,26 @@ body {
   opacity: 1 !important;
 }
 
-.copy-icon svg {
+.copy-icon svg,
+.expand-icon-btn svg {
   width: 12px;
   height: 12px;
 }
 
-/* Show copy icons on hover of parent elements */
+/* Show copy and expand icons on hover of parent elements */
 .copyable-item {
   display: inline-flex;
   align-items: center;
   position: relative;
 }
 
-.copyable-item:hover .copy-icon {
+.copyable-item:hover .copy-icon,
+.copyable-item:hover .expand-icon-btn {
   opacity: 0.6;
 }
 
-.copyable-item .copy-icon:hover {
+.copyable-item .copy-icon:hover,
+.copyable-item .expand-icon-btn:hover {
   opacity: 1 !important;
 }
 

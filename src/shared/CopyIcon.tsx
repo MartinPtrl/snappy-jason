@@ -4,12 +4,14 @@ interface CopyIconProps {
   text: string;
   className?: string;
   title?: string;
+  getActualValue?: () => Promise<string>; // New prop for getting actual value
 }
 
 export function CopyIcon({
   text,
   className = "",
   title = "Copy to clipboard",
+  getActualValue,
 }: CopyIconProps) {
   const [copied, setCopied] = useState(false);
 
@@ -17,7 +19,19 @@ export function CopyIcon({
     e.stopPropagation(); // Prevent triggering parent click events
 
     try {
-      await navigator.clipboard.writeText(text);
+      let valueToCopy = text;
+      
+      // If getActualValue is provided, use it to get the real content
+      if (getActualValue) {
+        try {
+          valueToCopy = await getActualValue();
+        } catch (error) {
+          console.warn("Failed to get actual value, falling back to preview text:", error);
+          // Fall back to the preview text if getting actual value fails
+        }
+      }
+      
+      await navigator.clipboard.writeText(valueToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 1000); // Reset after 1 second
     } catch (err) {

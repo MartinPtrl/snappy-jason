@@ -372,6 +372,20 @@ fn clear_last_opened_file(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_node_value(pointer: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let guard = state.doc.read();
+    let Some(root) = &*guard else { return Err("No document loaded".into()); };
+    
+    let value = if pointer.is_empty() {
+        root.as_ref()
+    } else {
+        root.pointer(&pointer).ok_or("Invalid pointer")?
+    };
+    
+    serde_json::to_string(value).map_err(|e| e.to_string())
+}
+
 pub fn main() {
     tauri::Builder::default()
         .manage(AppState::default())
@@ -381,7 +395,8 @@ pub fn main() {
             search,
             save_last_opened_file,
             load_last_opened_file,
-            clear_last_opened_file
+            clear_last_opened_file,
+            get_node_value
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
