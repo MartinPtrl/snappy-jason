@@ -6,11 +6,7 @@ export type { TreeState } from "./treeStore";
 export { Tree } from "./Tree";
 
 // Utilities
-export {
-  createNodesFromJSON,
-  createNodeFromValue,
-  getValueAtPointer,
-} from "./treeUtils";
+export { getValueAtPointer } from "./treeUtils";
 
 // Re-export for convenience
 export type { TreeNodeProps } from "@/shared/types";

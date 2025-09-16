@@ -26,7 +26,6 @@ function App() {
   } = useFileOperations();
 
   // Other state (non-file related)
-  const [jsonData, setJsonData] = useState<any>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
   // Main level pagination state
@@ -137,8 +136,6 @@ function App() {
   }, []);
 
   const handleFileLoad = async (path: string) => {
-    setJsonData(null);
-
     // Clear search when loading new file
     setIsSearchMode(false);
     setSearchQuery("");
@@ -261,8 +258,6 @@ function App() {
   };
 
   const handleFileUnload = useCallback(() => {
-    setJsonData(null);
-
     // Clear search state
     setIsSearchMode(false);
     setSearchQuery("");
@@ -414,12 +409,7 @@ function App() {
         {nodes.length > 0 && !isSearchMode && (
           <div className="json-viewer">
             {nodes.map((node, index) => (
-              <Tree
-                key={`${node.pointer}-${index}`}
-                node={node}
-                level={0}
-                jsonData={jsonData}
-              />
+              <Tree key={`${node.pointer}-${index}`} node={node} level={0} />
             ))}
             {mainHasMore && (
               <div
@@ -464,7 +454,7 @@ function App() {
                     </span>
                   </div>
                   <div className="search-result-content">
-                    <Tree node={result.node} level={0} jsonData={jsonData} />
+                    <Tree node={result.node} level={0} />
                   </div>
                   <div className="search-result-match">
                     <strong>Match:</strong>

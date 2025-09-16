@@ -1,10 +1,8 @@
 import { useCallback } from "react";
 import { useTreeStore } from "./treeStore";
-import { getValueAtPointer } from "./treeUtils";
 
 export const useTreeOperations = () => {
-  const { expandedNodes, jsonData, setJsonData, toggleNode, clearTreeState } =
-    useTreeStore();
+  const { expandedNodes, toggleNode, clearTreeState } = useTreeStore();
 
   // Handle node expansion/collapse
   const handleExpand = useCallback(
@@ -14,36 +12,22 @@ export const useTreeOperations = () => {
     [toggleNode]
   );
 
-  // Initialize tree with JSON data for frontend expansion
-  const initializeTree = useCallback(
-    (data: any) => {
-      setJsonData(data);
-    },
-    [setJsonData]
-  );
-
   // Clear all tree state (for file unload, etc.)
   const clearTree = useCallback(() => {
     clearTreeState();
   }, [clearTreeState]);
 
   // Get value at specific pointer (for frontend expansion)
-  const getValueAtPath = useCallback(
-    (pointer: string) => {
-      if (!jsonData) return null;
-      return getValueAtPointer(jsonData, pointer);
-    },
-    [jsonData]
-  );
+  const getValueAtPath = useCallback(() => {
+    return null;
+  }, []);
 
   return {
     // State
     expandedNodes,
-    jsonData,
 
     // Actions
     handleExpand,
-    initializeTree,
     clearTree,
     getValueAtPath,
 

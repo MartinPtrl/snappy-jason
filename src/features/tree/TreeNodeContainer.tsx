@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TreeNodeProps, Node } from "@/shared/types";
-import { createNodesFromJSON } from "./treeUtils";
 
 interface TreeNodeContainerProps extends Omit<TreeNodeProps, "children"> {
   TreeNodeComponent: React.ComponentType<TreeNodeProps>;
@@ -12,7 +11,6 @@ export function TreeNodeContainer({
   level,
   onExpand,
   expandedNodes,
-  jsonData,
   getValueAtPointer,
   TreeNodeComponent,
 }: TreeNodeContainerProps) {
@@ -30,43 +28,27 @@ export function TreeNodeContainer({
       try {
         const limit = 100; // Load 100 items at a time
 
-        // Try backend first, fallback to frontend if jsonData is available
-        if (jsonData && getValueAtPointer) {
-          // Frontend expansion
-          const value = getValueAtPointer(jsonData, pointer);
-          const allChildNodes = createNodesFromJSON(value, pointer);
-          const newChildren = allChildNodes.slice(offset, offset + limit);
+        // Backend expansion
+        const result = await invoke<Node[]>("load_children", {
+          pointer,
+          offset,
+          limit,
+        });
 
-          if (append) {
-            setChildren((prev) => [...prev, ...newChildren]);
-          } else {
-            setChildren(newChildren);
-          }
-          setLoadedCount(offset + newChildren.length);
-          setHasMore(offset + newChildren.length < allChildNodes.length);
+        if (append) {
+          setChildren((prev) => [...prev, ...result]);
         } else {
-          // Backend expansion
-          const result = await invoke<Node[]>("load_children", {
-            pointer,
-            offset,
-            limit,
-          });
-
-          if (append) {
-            setChildren((prev) => [...prev, ...result]);
-          } else {
-            setChildren(result);
-          }
-          setLoadedCount(offset + result.length);
-          setHasMore(result.length === limit); // If we got a full batch, there might be more
+          setChildren(result);
         }
+        setLoadedCount(offset + result.length);
+        setHasMore(result.length === limit); // If we got a full batch, there might be more
       } catch (error) {
         console.error("Failed to load children:", error);
       } finally {
         setLoading(false);
       }
     },
-    [jsonData, getValueAtPointer, loading]
+    [getValueAtPointer, loading]
   );
 
   // Intersection observer for infinite scroll
@@ -116,7 +98,6 @@ export function TreeNodeContainer({
       onExpand={handleExpand}
       expandedNodes={expandedNodes}
       children={loading ? [] : children}
-      jsonData={jsonData}
       getValueAtPointer={getValueAtPointer}
       loadMoreRef={loadMoreRef}
       hasMore={hasMore}
