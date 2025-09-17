@@ -1,12 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type {
-  Node,
-  SearchResult,
-  SearchResponse,
-  SearchOptions,
-} from "@/shared/types";
+import type { Node, SearchResult, SearchOptions } from "@/shared/types";
 import { useFileOperations } from "@/features/file";
 import { Tree, useTreeOperations } from "@/features/tree";
 import { CopyIcon, ProgressBar, ToggleThemeButton } from "@shared";
@@ -39,7 +34,13 @@ function App() {
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchPage, setSearchPage] = useState(1); // highest loaded (1-based)
+  // Track expanded preview state for search results (by node pointer)
+  const [expandedSearchPreviews, setExpandedSearchPreviews] = useState<
+    Record<string, boolean>
+  >({});
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchAppending, setSearchAppending] = useState(false); // true when loading additional pages
   const [searchError, setSearchError] = useState<string>("");
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [searchOptions, setSearchOptions] = useState<SearchOptions>({
@@ -58,6 +59,7 @@ function App() {
     useState(false);
 
   const searchTimeoutRef = useRef<number | null>(null);
+  const searchLoadMoreRef = useRef<HTMLDivElement>(null);
 
   // Tree operations
   const { handleExpandAll, handleCollapseAll, expandedNodes } =
@@ -148,16 +150,12 @@ function App() {
 
   // Re-run search when options change
   useEffect(() => {
-    // Clear search target notification when search options change
     setShowSearchTargetNotification(false);
-
     if (isSearchMode && searchQuery.trim()) {
-      // Debounce search to avoid rapid-fire requests
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
       searchTimeoutRef.current = setTimeout(() => {
-        performSearch(searchQuery);
+        performSearch(searchQuery, 1, 50, { append: false });
+        setSearchPage(1);
       }, 300);
     }
   }, [searchOptions]);
@@ -202,16 +200,16 @@ function App() {
 
         unlisten = await listen<{ paths: string[] }>(
           "tauri://drag-drop",
-          (event) => {
+          (event: { payload: { paths: string[] } }) => {
             console.log("✅ TAURI DRAG DROP EVENT:", event.payload);
             const filePaths = event.payload.paths;
             if (filePaths.length > 0) {
-              const jsonFile = filePaths.find((path) =>
+              const jsonFile = filePaths.find((path: string) =>
                 path.toLowerCase().endsWith(".json")
               );
               if (jsonFile) {
                 console.log("📁 Loading JSON file via Tauri:", jsonFile);
-                handleFileUnload();
+                // handleFileUnload();
                 handleFileLoad(jsonFile);
               } else {
                 // Show error in UI by setting a temporary error state
@@ -294,10 +292,12 @@ function App() {
     }
   };
 
+  const currentSearchIdRef = useRef<number>(0);
   const performSearch = async (
     query: string,
-    offset: number = 0,
-    limit: number = 100
+    page: number,
+    pageSize: number,
+    { append }: { append: boolean }
   ) => {
     if (!query.trim()) {
       setSearchResults([]);
@@ -306,25 +306,33 @@ function App() {
       setShowSearchTargetNotification(false);
       return;
     }
-
-    // Check if at least one search target is selected
     if (
       !searchOptions.searchKeys &&
       !searchOptions.searchValues &&
       !searchOptions.searchPaths
     ) {
       setShowSearchTargetNotification(true);
-      setTimeout(() => setShowSearchTargetNotification(false), 3000); // Hide after 3 seconds
+      setTimeout(() => setShowSearchTargetNotification(false), 3000);
       return;
     }
-
-    setSearchLoading(true);
+    const newId = currentSearchIdRef.current + 1;
+    currentSearchIdRef.current = newId;
+    if (append) {
+      setSearchAppending(true);
+    } else {
+      setSearchLoading(true);
+    }
     setSearchError("");
     setIsSearchMode(true);
     setShowSearchTargetNotification(false);
-
     try {
-      const response = await invoke<SearchResponse>("search", {
+      const offset = (page - 1) * pageSize;
+      const limit = pageSize;
+      const resp = await invoke<{
+        results: SearchResult[];
+        total_count: number;
+        has_more: boolean;
+      }>("search", {
         query: query.trim(),
         searchKeys: searchOptions.searchKeys,
         searchValues: searchOptions.searchValues,
@@ -335,24 +343,24 @@ function App() {
         offset,
         limit,
       });
-
-      if (offset === 0) {
-        // New search
-        setSearchResults(response.results);
-      } else {
-        // Load more results
-        setSearchResults((prev) => [...prev, ...response.results]);
-      }
-
-      setSearchStats({
-        totalCount: response.total_count,
-        hasMore: response.has_more,
-      });
+      if (currentSearchIdRef.current !== newId) return;
+      setSearchResults((prev) =>
+        append ? [...prev, ...resp.results] : resp.results
+      );
+      setSearchStats({ totalCount: resp.total_count, hasMore: resp.has_more });
     } catch (error) {
-      console.error("Search failed:", error);
+      if (currentSearchIdRef.current !== newId) return;
       setSearchError(`Search failed: ${error}`);
+      setSearchResults([]);
+      setSearchStats({ totalCount: 0, hasMore: false });
     } finally {
-      setSearchLoading(false);
+      if (currentSearchIdRef.current === newId) {
+        if (append) {
+          setSearchAppending(false);
+        } else {
+          setSearchLoading(false);
+        }
+      }
     }
   };
 
@@ -365,21 +373,19 @@ function App() {
     }
 
     searchTimeoutRef.current = setTimeout(() => {
-      performSearch(query);
+      performSearch(query, 1, 50, { append: false });
+      setSearchPage(1);
     }, 300);
   };
 
-  const loadMoreResults = () => {
-    if (searchStats.hasMore && !searchLoading) {
-      performSearch(searchQuery, searchResults.length);
-    }
-  };
+  // Pagination disabled in streaming mode
 
   const handleFileUnload = useCallback(() => {
     // Clear search state
     setIsSearchMode(false);
     setSearchQuery("");
     setSearchResults([]);
+    setSearchPage(1);
     setSearchError("");
 
     // Clear main level pagination state
@@ -388,6 +394,41 @@ function App() {
 
     unloadFile();
   }, [unloadFile]);
+
+  // Infinite scroll for search results
+  useEffect(() => {
+    if (!isSearchMode) return;
+    if (!searchStats.hasMore) return;
+    if (searchLoading || searchAppending) return;
+    const el = searchLoadMoreRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting) {
+          // Load next page
+          const nextPage = searchPage + 1;
+          setSearchPage(nextPage);
+          performSearch(searchQuery, nextPage, 50, {
+            append: true,
+          });
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [
+    isSearchMode,
+    searchStats.hasMore,
+    searchLoading,
+    searchAppending,
+    searchPage,
+    searchQuery,
+  ]);
 
   return (
     <div className="app">
@@ -540,11 +581,17 @@ function App() {
               <div className="error-message">❌ {searchError}</div>
             )}
 
-            {isSearchMode && searchStats.totalCount > 0 && (
+            {isSearchMode && (
               <div className="search-stats">
-                Found {searchStats.totalCount} results
-                {searchStats.hasMore &&
-                  ` (showing first ${searchResults.length})`}
+                {searchLoading ? (
+                  <>Searching…</>
+                ) : (
+                  <>
+                    Found {searchStats.totalCount} matches · Showing{" "}
+                    {searchResults.length} of {searchStats.totalCount}
+                    {searchAppending && " (loading more...)"}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -618,6 +665,41 @@ function App() {
                         text={result.node.pointer || "/"}
                         title="Copy path"
                       />
+                      {(() => {
+                        // Determine if this node can have a clipped snippet (string preview with search active)
+                        const pointer = result.node.pointer;
+                        const isString = result.node.value_type === "string";
+                        const showToggle =
+                          isString &&
+                          searchQuery.trim().length > 0 &&
+                          searchOptions.searchValues;
+                        if (!showToggle) return null;
+                        const isExpanded = !!expandedSearchPreviews[pointer];
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedSearchPreviews((prev) => ({
+                                ...prev,
+                                [pointer]: !isExpanded,
+                              }));
+                            }}
+                            title={isExpanded ? "Show less" : "Show full"}
+                            style={{
+                              marginLeft: 8,
+                              padding: 0,
+                              border: "none",
+                              background: "transparent",
+                              color: "#0a84ff",
+                              cursor: "pointer",
+                              fontSize: "0.75rem",
+                            }}
+                          >
+                            {isExpanded ? "Show less" : "Show full"}
+                          </button>
+                        );
+                      })()}
                     </span>
                   </div>
                   <div className="search-result-content">
@@ -626,23 +708,33 @@ function App() {
                       level={0}
                       searchQuery={searchQuery}
                       searchOptions={searchOptions}
+                      externalShowFull={
+                        !!expandedSearchPreviews[result.node.pointer]
+                      }
+                      suppressInternalToggle={true}
                     />
                   </div>
                 </div>
               ))}
-            </div>
-
-            {searchStats.hasMore && (
-              <div className="load-more-container">
-                <button
-                  onClick={loadMoreResults}
-                  disabled={searchLoading}
-                  className="load-more-button"
+              {searchStats.hasMore && (
+                <div
+                  ref={searchLoadMoreRef}
+                  className="infinite-scroll-trigger"
+                  style={{
+                    height: "24px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "12px",
+                    opacity: 0.6,
+                  }}
                 >
-                  {searchLoading ? "Loading..." : "Load More Results"}
-                </button>
-              </div>
-            )}
+                  {searchAppending
+                    ? "Loading more results…"
+                    : "Scroll to load more"}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
