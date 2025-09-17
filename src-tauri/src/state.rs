@@ -5,6 +5,7 @@ use std::sync::{Arc, atomic::AtomicBool};
 pub struct AppState {
   pub doc: RwLock<Option<Arc<Value>>>,
     pub cancel_parse: Arc<AtomicBool>,
+    pub active_search_id: AtomicU64,
 }
 
 impl Default for AppState {
@@ -12,6 +13,7 @@ impl Default for AppState {
         Self {
             doc: RwLock::new(None),
             cancel_parse: Arc::new(AtomicBool::new(false)),
+            active_search_id: AtomicU64::new(0),
         }
     }
 }

@@ -8,15 +8,27 @@ interface TreeProps {
   level: number;
   searchQuery?: string;
   searchOptions?: SearchOptions;
+  // Optional external control for showing full preview (used in search results header button)
+  externalShowFull?: boolean;
+  // If true, suppress rendering the internal toggle button inside the Tree header
+  suppressInternalToggle?: boolean;
 }
 
-export function Tree({ node, level, searchQuery, searchOptions }: TreeProps) {
+export function Tree({
+  node,
+  level,
+  searchQuery,
+  searchOptions,
+  externalShowFull,
+  suppressInternalToggle,
+}: TreeProps) {
   const { expandedNodes, handleExpand } = useTreeOperations();
   const [children, setChildren] = useState<Node[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadedCount, setLoadedCount] = useState(0);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const [showFull, setShowFull] = useState(false);
 
   const isExpanded = expandedNodes.has(node.pointer);
   const hasChildren = node.has_children;
@@ -270,6 +282,51 @@ export function Tree({ node, level, searchQuery, searchOptions }: TreeProps) {
     }
   };
 
+  // Compute preview rendering and whether a toggle should be shown
+  const effectiveShowFull =
+    externalShowFull !== undefined ? externalShowFull : showFull;
+
+  const { previewContent, canTogglePreview } = useMemo(() => {
+    // No search context -> just show preview (no toggle)
+    if (!(searchQuery && searchOptions)) {
+      return { previewContent: node.preview, canTogglePreview: false };
+    }
+
+    const raw = node.preview;
+    // When explicitly showing full, highlight entire preview
+    if (effectiveShowFull) {
+      return {
+        previewContent: highlightText(raw, searchQuery, searchOptions),
+        canTogglePreview: true,
+      };
+    }
+
+    const q = searchOptions.caseSensitive
+      ? searchQuery
+      : searchQuery.toLowerCase();
+    const hay = searchOptions.caseSensitive ? raw : raw.toLowerCase();
+    const idx = hay.indexOf(q);
+    if (idx === -1) {
+      // No match -> just do normal highlight, no toggle needed
+      return {
+        previewContent: highlightText(raw, searchQuery, searchOptions),
+        canTogglePreview: false,
+      };
+    }
+    // Build a focused snippet around first occurrence
+    const CONTEXT = 60; // chars before and after
+    const start = Math.max(0, idx - CONTEXT);
+    const end = Math.min(raw.length, idx + q.length + CONTEXT);
+    const prefixEllipsis = start > 0 ? "…" : "";
+    const suffixEllipsis = end < raw.length ? "…" : "";
+    const snippet = prefixEllipsis + raw.slice(start, end) + suffixEllipsis;
+
+    return {
+      previewContent: highlightText(snippet, searchQuery, searchOptions),
+      canTogglePreview: prefixEllipsis !== "" || suffixEllipsis !== "",
+    };
+  }, [node.preview, searchQuery, searchOptions, effectiveShowFull]);
+
   return (
     <div className="tree-node">
       <div
@@ -290,6 +347,27 @@ export function Tree({ node, level, searchQuery, searchOptions }: TreeProps) {
             />
           )}
         </span>
+        {canTogglePreview && !suppressInternalToggle && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowFull((v) => !v);
+            }}
+            title={showFull ? "Show less" : "Show full"}
+            style={{
+              marginLeft: 8,
+              padding: 0,
+              border: "none",
+              background: "transparent",
+              color: "#0a84ff",
+              cursor: "pointer",
+              fontSize: "0.85em",
+            }}
+          >
+            {showFull ? "Show less" : "Show full"}
+          </button>
+        )}
         <span
           className="node-type"
           style={{ color: getTypeColor(node.value_type) }}
@@ -299,10 +377,17 @@ export function Tree({ node, level, searchQuery, searchOptions }: TreeProps) {
         {node.child_count > 0 && (
           <span className="child-count">({node.child_count})</span>
         )}
-        <span className="node-preview copyable-item">
-          {searchQuery && searchOptions
-            ? highlightText(node.preview, searchQuery, searchOptions)
-            : node.preview}
+        <span
+          className="node-preview copyable-item"
+          style={{
+            whiteSpace: effectiveShowFull ? "pre-wrap" : "pre",
+            wordBreak: effectiveShowFull ? "break-word" : "normal",
+            overflowX: effectiveShowFull ? "visible" : undefined,
+            display: "inline-block",
+            maxWidth: "100%",
+          }}
+        >
+          {previewContent}
           <CopyIcon
             text={node.preview}
             title="Copy value"
