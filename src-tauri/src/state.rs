@@ -1,6 +1,6 @@
 use parking_lot::RwLock;
 use serde_json::Value;
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::{Arc, atomic::{AtomicBool, AtomicU64}};
 
 pub struct AppState {
   pub doc: RwLock<Option<Arc<Value>>>,
