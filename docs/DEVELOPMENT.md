@@ -13,8 +13,9 @@
 #### **Prerequisites**
 
 - Node.js 16+
-- Yarn package manager
+- Yarn package manager (project uses `yarn.lock`)
 - Rust (for Tauri backend)
+- Tauri prerequisites (platform-specific dependencies)
 
 #### **Getting Started**
 
@@ -33,6 +34,12 @@ yarn tsc --noEmit
 # Build for production
 yarn tauri build
 ```
+
+Notes:
+
+- We prefer `yarn` to keep lockfile consistent; if you use npm/pnpm, clean install and test carefully.
+- Auto-update uses `@tauri-apps/plugin-updater` and `@tauri-apps/plugin-process` (see `shared/Updater.tsx`). In dev, the updater will typically report no updates.
+- Parsing progress is emitted from the backend; see `features/file/useFileOperations.ts` for how `parse_progress` events are handled.
 
 ## 🏗️ Feature Development
 
@@ -112,6 +119,11 @@ yarn tauri build
 - Verify state management flows
 - Test error scenarios
 
+Recommended:
+
+- For hooks and stores, prefer testing pure logic where possible (selectors, actions)
+- For Tauri `invoke`, wrap calls and mock at the boundary
+
 ## 🔄 Migration from Legacy Code
 
 ### **Refactoring Checklist**
@@ -160,6 +172,7 @@ When moving code from the main App.tsx:
 - One store per feature
 - Actions should be pure when possible
 - Use selectors for computed values
+- Prefer explicit action functions in hooks for business logic
 
 ### **File Organization**
 
@@ -186,6 +199,7 @@ When moving code from the main App.tsx:
 - Check browser console for invoke errors
 - Use `console.log` in Rust commands
 - Verify Tauri configuration
+- For file drag/drop, Tauri emits `tauri://drag-*` events; see setup in `App.tsx`
 
 ## 📚 Additional Resources
 

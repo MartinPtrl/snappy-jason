@@ -2,135 +2,106 @@
 
 ## 🎯 Project Vision
 
-Snappy Jason is evolving from a monolithic React application into a well-structured, maintainable codebase using feature-based architecture. This document outlines our architectural decisions and refactoring approach.
+Snappy Jason is evolving from a monolithic React application into a well-structured, maintainable codebase using feature-based architecture. This document outlines our architectural decisions and the state of the ongoing refactor.
 
 ## 📁 Architecture Overview
 
-### **Feature-Based Organization**
+### Feature-Based Organization
 
-We organize code by **features** rather than technical layers, making it easier to understand, maintain, and extend as new features are added.
+We organize code by features instead of technical layers to keep modules cohesive and easy to evolve.
 
 ```
 src/
-├── features/            # Feature-based modules
-│   ├── file/            # File operations (load, save, config)
-│   ├── tree/            # JSON tree view & navigation
-│   └── search/          # Search functionality
-├── shared/              # Shared utilities and types
-│   ├── types.ts         # TypeScript interfaces
-│   ├── utils/           # Utility functions
-│   └── hooks/           # Shared custom hooks
-└── App.tsx              # Main orchestrator component
+├── features/                  # Feature-based modules
+│   ├── file/                  # Open/restore file, parse progress, cancel
+│   └── tree/                  # JSON tree view, expand/collapse, lazy loading
+├── shared/                    # Shared UI, utilities and types
+│   ├── types.ts               # TypeScript interfaces
+│   ├── highlightUtils.tsx     # Highlighting helpers for search
+│   ├── ProgressBar.tsx        # Parsing progress UI (+ Cancel)
+│   ├── Updater.tsx            # Auto-update UI (Tauri updater)
+│   └── index.ts               # Shared exports (icons, toggles, etc.)
+└── App.tsx                    # Main orchestrator + Search UI & paging
 ```
 
-### **State Management - Zustand**
+### State Management - Zustand
 
-- **Why Zustand?** Lightweight, TypeScript-friendly, no boilerplate
-- **Store Structure:** Feature-based slices that can be combined
-- **Benefits:** Better DevTools, easier testing, clear data flow
+- Why Zustand: lightweight, TypeScript-friendly, minimal boilerplate
+- Structure: one store slice per feature (e.g., `fileStore`, `treeStore`)
+- Benefits: clear data flow, easy testing, minimal re-renders
 
-### **Component Strategy**
+### Component Strategy
 
-- **Custom Hooks:** Extract complex logic (useFileOperations, useSearch, useInfiniteScroll)
-- **Feature Components:** Self-contained within their feature folders
-- **Shared Components:** Only truly reusable components go in shared/
+- Custom hooks encapsulate business logic (e.g., `useFileOperations`, `useTreeOperations`)
+- UI components stay focused on presentation; reusable parts live in `shared/`
+- Absolute imports via Vite path aliases: `@`, `@features`, `@shared`
 
 ## 🚀 Migration Strategy
 
-### **Incremental Refactoring**
+We refactor incrementally to keep the app running at all times.
 
-We're refactoring **incrementally** to maintain stability:
+1. Phase 1: Foundation (✅ Complete)
 
-1. **Phase 1:** Foundation (✅ Complete)
+- Install Zustand, create folder structure, extract shared types
 
-   - Install Zustand
-   - Create folder structure
-   - Extract shared types
+2. Phase 2: File Feature (✅ Complete)
 
-2. **Phase 2:** File Operations Feature
+- Extract file open/restore to `features/file`
+- Add parse progress and cancel (`ProgressBar` + `cancel_parse`)
+- Persist last-opened file via Tauri config
 
-   - Extract file loading, saving, config management
-   - Create fileStore.ts (Zustand slice)
-   - Create useFileOperations.ts (custom hook)
+3. Phase 3: Tree Feature (✅ Complete)
 
-3. **Phase 3:** Tree Feature
+- Move `Tree`, `TreeNode`, `TreeNodeContainer` to `features/tree`
+- Add expand/collapse controls and lazy loading
+- Root-level infinite scroll with IntersectionObserver
 
-   - Extract TreeNode components
-   - Implement infinite scroll logic
-   - Create treeStore.ts for expansion state
+4. Phase 4: Search (🚧 In Progress)
 
-4. **Phase 4:** Search Feature
+- Search UI in `App.tsx` with options: keys, values, paths; case-sensitive, whole-word, regex
+- Backend paging (`offset/limit`) and infinite scroll for results
+- Match highlighting and optional full string previews per result
+- Next: consider extracting search state to `features/search`
 
-   - Extract search components and logic
-   - Create searchStore.ts
-   - Implement search state management
+5. Phase 5: App Cleanup (📋 Planned)
 
-5. **Phase 5:** App Cleanup
-   - Refactor main App.tsx to orchestrate features
-   - Remove redundant state
-   - Optimize performance
-
-### **Benefits of This Approach**
-
-- ✅ **Non-breaking:** App continues working throughout refactor
-- ✅ **Testable:** Each feature can be tested in isolation
-- ✅ **Maintainable:** Clear separation of concerns
-- ✅ **Scalable:** Easy to add new features without affecting existing ones
-
-## 🔧 Development Guidelines
-
-### **Adding New Features**
-
-1. Create feature folder: `src/features/my-feature/`
-2. Add store slice: `myFeatureStore.ts`
-3. Create custom hook: `useMyFeature.ts`
-4. Add components: `MyFeatureComponent.tsx`
-5. Export from `index.ts`
-
-### **File Naming Conventions**
-
-- **Stores:** `featureStore.ts` (e.g., `fileStore.ts`)
-- **Hooks:** `useFeatureName.ts` (e.g., `useFileOperations.ts`)
-- **Components:** `PascalCase.tsx` (e.g., `TreeNode.tsx`)
-- **Types:** Co-located with feature or in `shared/types.ts`
-
-### **Import Strategy**
-
-- **Absolute imports:** From feature root (`@features/file`)
-- **Relative imports:** Within same feature only
-- **Shared imports:** From `@shared/`
+- Simplify `App.tsx` to orchestrate features and layout
+- Add error boundaries and optimize re-renders
 
 ## 📊 Current Progress
 
-### ✅ Completed (Phase 1)
+### ✅ Completed
 
-- [x] Zustand installation
-- [x] Folder structure creation
-- [x] TypeScript interfaces extraction
-- [x] Updated imports to use absolute paths
-- [x] Configured TypeScript and Vite path mapping
+- Feature-based folder structure and path aliases
+- File feature with parse progress + cancel and last-file persistence
+- Tree feature with expand/collapse and infinite scroll
 
-### ✅ Completed (Phase 2)
+### 🚧 In Progress
 
-- [x] Extract file operations to `src/features/file/`
-- [x] Create fileStore.ts with Zustand
-- [x] Build useFileOperations hook with pagination support
-- [x] Update App.tsx to use new file feature
-- [x] Fixed broken pagination functionality
+- Search with paging, highlighting, and result infinite scroll
 
-### 🚧 Next Steps (Phase 3)
+## 🧩 Cross-Cutting Concerns
 
-- [ ] Extract tree view components to `src/features/tree/`
-- [ ] Create treeStore.ts for expansion state
-- [ ] Build useTreeOperations hook
-- [ ] Extract infinite scroll logic
+### Progress & Cancellation
+
+- Backend emits `parse_progress` events; `useFileOperations` tracks `parseProgress` (0–100)
+- `ProgressBar` displays progress and wires `onCancel` to the `cancel_parse` command
+
+### Auto-Update
+
+- `shared/Updater.tsx` uses `@tauri-apps/plugin-updater` to check/download updates and prompt for restart
+
+### Infinite Scroll
+
+- Root nodes: sentinel triggers `load_children` to fetch next page
+- Search: sentinel appends next `search` page (offset/limit) when visible
 
 ## 🎓 Learning Resources
 
-- [Zustand Documentation](https://github.com/pmndrs/zustand)
-- [Feature-Based Architecture](https://feature-sliced.design/)
-- [React Custom Hooks Best Practices](https://react.dev/learn/reusing-logic-with-custom-hooks)
+- Zustand: https://github.com/pmndrs/zustand
+- Feature-based architecture: https://feature-sliced.design/
+- React hooks best practices: https://react.dev/learn/reusing-logic-with-custom-hooks
 
 ---
 
-_This architecture is designed to grow with the project. As new features are added, the pattern becomes clearer and more valuable._
+This architecture is designed to grow with the project. As new features are added, the pattern becomes clearer and more valuable.
