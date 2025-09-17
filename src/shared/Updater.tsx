@@ -114,7 +114,7 @@ export function Updater({ checkOnStartup = true }: UpdaterProps) {
       className="update-check-button"
       title="Check for Updates"
     >
-      🔄
+      ⬇️
     </button>
   );
 }

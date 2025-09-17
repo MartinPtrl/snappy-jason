@@ -37,7 +37,11 @@ export function ToggleThemeButton() {
   }, []);
 
   return (
-    <button onClick={toggleTheme} className="theme-toggle-button">
+    <button 
+      onClick={toggleTheme} 
+      className="theme-toggle-button"
+      title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+    >
       {theme === "light" ? "🌙" : "☀️"}
     </button>
   );

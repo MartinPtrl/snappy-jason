@@ -43,8 +43,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.0-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Install frontend dependencies
-        run: npm install # change this to npm, pnpm, bun etc depending on which one you use.
+      - name: Clean and install dependencies
+        shell: bash
+        run: |
+          rm -rf node_modules package-lock.json yarn.lock || true
+          npm install --force
+          npx tauri info
 
       - uses: tauri-apps/tauri-action@v0
         env:
@@ -60,3 +64,4 @@ jobs:
           args: ${{ matrix.args }}
           updaterJsonPreferNsis: true
           includeUpdaterJson: true
+          packageManager: npm
