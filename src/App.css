@@ -127,6 +127,49 @@ button {
   pointer-events: none;
 }
 
+/* Centered progress overlay (similar approach to drag overlay but independent) */
+.progress-center-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none; /* not interactive, only visual */
+  z-index: 800; /* below drag overlay (1000) but above content */
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.15),
+    rgba(0, 0, 0, 0.05)
+  );
+  backdrop-filter: blur(1px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.progress-center-overlay .progress-wrapper {
+  pointer-events: auto; /* allow potential future cancel button */
+  padding: 1.25rem 1.5rem;
+  background: var(--background-color-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  min-width: 300px;
+  animation: scale-in 0.25s ease;
+}
+
+@keyframes scale-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .drag-message {
   background: #2196f3;
   color: white;
@@ -505,9 +548,19 @@ button {
 }
 
 @keyframes fade-in-out {
-  0% { opacity: 0; transform: translateY(-10px); }
-  10%, 90% { opacity: 1; transform: translateY(0); }
-  100% { opacity: 0; transform: translateY(-10px); }
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  10%,
+  90% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
 }
 
 .search-stats {
