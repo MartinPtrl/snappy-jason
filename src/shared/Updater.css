@@ -1,4 +1,12 @@
 /* Updater Component Styles */
+.updater-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 200px; /* Reserve space to prevent layout shift */
+  justify-content: flex-end; /* Align button to the right */
+}
+
 .update-check-button {
   background: none;
   border: 1px solid var(--border-color);
@@ -14,10 +22,40 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0; /* Prevent button from shrinking */
 }
 
-.update-check-button:hover {
+.update-check-button:hover:not(:disabled) {
   background-color: var(--hover-background-color);
+}
+
+.update-check-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.update-status-message {
+  font-size: 0.9rem;
+  color: var(--text-color);
+  opacity: 0.7;
+  flex-grow: 1; /* Take up remaining space on the left */
+  text-align: left;
+}
+
+.no-updates-message {
+  font-size: 0.9rem;
+  color: var(--text-color);
+  opacity: 0.7;
+  animation: fadeInOut 3s ease-in-out;
+  flex-grow: 1; /* Take up remaining space on the left */
+  text-align: left;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translateX(-10px); }
+  20% { opacity: 0.7; transform: translateX(0); }
+  80% { opacity: 0.7; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(-10px); }
 }
 
 .updater-error,
