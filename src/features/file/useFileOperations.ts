@@ -64,6 +64,10 @@ export const useFileOperations = () => {
         if (!payload || typeof payload !== "object") return;
         if (payload.path !== path) return; // ignore other files' progress
         if (latestRequestIdRef.current !== currentId) return; // stale request
+        if (payload.canceled) {
+          // Let cancel handler manage state; just ignore further updates
+          return;
+        }
         if (typeof payload.percent === "number") {
           setParseProgress(payload.percent);
         }
@@ -95,7 +99,7 @@ export const useFileOperations = () => {
       }
       // Finally section outside catch for shared cleanup
       if (latestRequestIdRef.current === currentId) {
-        // If parse completed but events never hit 100 (e.g., very last chunk), force 100
+        // If parse finished naturally and not canceled, ensure progress shows 100
         if (parseProgress < 100) {
           setParseProgress(100);
         }
@@ -147,6 +151,23 @@ export const useFileOperations = () => {
     [clearFile]
   );
 
+  // Cancel current loading/parsing
+  const cancelLoad = useCallback(async () => {
+    try {
+      await invoke("cancel_parse");
+    } catch (e) {
+      console.warn("cancel_parse failed or unavailable:", e);
+    }
+    // Invalidate the in-flight request so its eventual result/error is ignored
+    latestRequestIdRef.current++;
+    // Reset UI state; do not persist last opened file on cancel
+    setLoading(false);
+    setParseProgress(0);
+    setError("");
+    setNodes([]);
+    setFileName("");
+  }, []);
+
   // Load more nodes for pagination (root level)
   const loadMoreNodes = useCallback(
     async (offset: number = 0, limit: number = 100): Promise<Node[]> => {
@@ -195,6 +216,7 @@ export const useFileOperations = () => {
     loadFile,
     loadLastOpenedFile,
     unloadFile,
+    cancelLoad,
     loadMoreNodes,
 
     // Config operations (exposed for advanced usage)
