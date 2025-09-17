@@ -403,8 +403,9 @@ function App() {
                   onClick={handleFileUnload}
                   className="file-button unload-button"
                   disabled={loading}
+                  title="Clear"
                 >
-                  Clear
+                  🗑️
                 </button>
               )}
             </div>
