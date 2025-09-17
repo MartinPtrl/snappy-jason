@@ -385,6 +385,7 @@ fn get_node_value(pointer: String, state: tauri::State<'_, AppState>) -> Result<
 
 pub fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             open_file, 

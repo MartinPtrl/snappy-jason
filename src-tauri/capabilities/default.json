@@ -6,6 +6,8 @@
   "permissions": [
     "core:default",
     "opener:default",
+    "updater:default",
+    "updater:allow-check",
     "core:event:allow-listen",
     "core:event:allow-emit"
   ]

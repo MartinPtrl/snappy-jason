@@ -1,0 +1,126 @@
+/* Updater Component Styles */
+.update-check-button {
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 0.25rem 0.5rem;
+  color: var(--text-color);
+  background-color: var(--background-color);
+  transition: background-color 0.2s ease;
+}
+
+.update-check-button:hover {
+  background-color: var(--hover-background-color);
+}
+
+.updater-error,
+.updater-ready,
+.updater-downloading,
+.updater-available {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  max-width: 300px;
+}
+
+.updater-error {
+  background: #ff4444;
+  color: white;
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.updater-ready {
+  background: #4CAF50;
+  color: white;
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.updater-downloading {
+  background: #2196F3;
+  color: white;
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.updater-available {
+  background: #FF9800;
+  color: white;
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.update-notification p {
+  margin: 0 0 12px 0;
+  font-weight: 500;
+}
+
+.update-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.restart-button,
+.later-button,
+.check-updates-button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.restart-button {
+  background: rgba(255, 255, 255, 0.9);
+  color: #4CAF50;
+}
+
+.restart-button:hover {
+  background: white;
+  transform: translateY(-1px);
+}
+
+.later-button {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.later-button:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.check-updates-button {
+  background: #f0f0f0;
+  color: #333;
+  border: 1px solid #ddd;
+}
+
+.check-updates-button:hover {
+  background: #e0e0e0;
+  transform: translateY(-1px);
+}
+
+/* Dark theme support */
+@media (prefers-color-scheme: dark) {
+  .check-updates-button {
+    background: #333;
+    color: #f0f0f0;
+    border: 1px solid #555;
+  }
+  
+  .check-updates-button:hover {
+    background: #444;
+  }
+}
