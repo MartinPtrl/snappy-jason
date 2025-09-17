@@ -210,7 +210,7 @@ function App() {
               );
               if (jsonFile) {
                 console.log("📁 Loading JSON file via Tauri:", jsonFile);
-                handleFileUnload();
+                // handleFileUnload();
                 handleFileLoad(jsonFile);
               } else {
                 // Show error in UI by setting a temporary error state
@@ -581,14 +581,14 @@ function App() {
               <div className="search-stats">
                 {searchLoading ? (
                   <>
-                    Found {searchStats.totalCount} so far (showing{" "}
-                    {searchResults.length})
+                    Found {searchStats.totalCount} matches so far (in{" "}
+                    {searchResults.length} distinct nodes)
                   </>
                 ) : (
                   <>
-                    Found {searchStats.totalCount} results
-                    {searchResults.length !== searchStats.totalCount &&
-                      ` (showing ${searchResults.length})`}
+                    Found {searchStats.totalCount} matches in{" "}
+                    {searchResults.length} distinct{" "}
+                    {searchResults.length === 1 ? "node" : "nodes"}
                   </>
                 )}
               </div>

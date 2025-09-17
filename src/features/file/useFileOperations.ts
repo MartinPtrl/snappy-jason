@@ -41,6 +41,8 @@ export const useFileOperations = () => {
 
   // File operations
   const latestRequestIdRef = useRef(0);
+  // Separate in-flight flag for pagination to avoid blocking when initial file load finished
+  const loadingMoreRef = useRef(false);
 
   const loadFile = useCallback(
     async (
@@ -171,35 +173,32 @@ export const useFileOperations = () => {
   // Load more nodes for pagination (root level)
   const loadMoreNodes = useCallback(
     async (offset: number = 0, limit: number = 100): Promise<Node[]> => {
-      if (loading) {
-        console.warn(
-          "File operation already in progress, skipping loadMoreNodes"
-        );
+      if (loadingMoreRef.current) {
         return [];
       }
-
+      loadingMoreRef.current = true;
       try {
         const result = await invoke<Node[]>("load_children", {
           pointer: "",
           offset,
           limit,
         });
-
         if (offset === 0) {
           setNodes(result);
-        } else {
+        } else if (result.length) {
           appendNodes(result);
         }
-
         return result;
       } catch (error) {
         const errorMessage = `Failed to load more nodes at offset ${offset}: ${error}`;
         console.error(errorMessage);
         setError(errorMessage);
         return [];
+      } finally {
+        loadingMoreRef.current = false;
       }
     },
-    [loading, setNodes, appendNodes, setError]
+    [setNodes, appendNodes, setError]
   );
 
   return {
