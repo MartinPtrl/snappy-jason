@@ -35,7 +35,6 @@ function App() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchPage, setSearchPage] = useState(1); // highest loaded (1-based)
-  const [searchPageSize, setSearchPageSize] = useState(50); // batch size for infinite scroll
   // Track expanded preview state for search results (by node pointer)
   const [expandedSearchPreviews, setExpandedSearchPreviews] = useState<
     Record<string, boolean>
@@ -155,11 +154,11 @@ function App() {
     if (isSearchMode && searchQuery.trim()) {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
       searchTimeoutRef.current = setTimeout(() => {
-        performSearch(searchQuery, 1, searchPageSize, { append: false });
+        performSearch(searchQuery, 1, 50, { append: false });
         setSearchPage(1);
       }, 300);
     }
-  }, [searchOptions, searchPageSize]);
+  }, [searchOptions]);
 
   const handleFileLoad = useCallback(async (path: string) => {
     // Clear search when loading new file
@@ -374,7 +373,7 @@ function App() {
     }
 
     searchTimeoutRef.current = setTimeout(() => {
-      performSearch(query, 1, searchPageSize, { append: false });
+      performSearch(query, 1, 50, { append: false });
       setSearchPage(1);
     }, 300);
   };
@@ -411,7 +410,7 @@ function App() {
           // Load next page
           const nextPage = searchPage + 1;
           setSearchPage(nextPage);
-          performSearch(searchQuery, nextPage, searchPageSize, {
+          performSearch(searchQuery, nextPage, 50, {
             append: true,
           });
         }
@@ -429,7 +428,6 @@ function App() {
     searchAppending,
     searchPage,
     searchQuery,
-    searchPageSize,
   ]);
 
   return (
@@ -648,48 +646,6 @@ function App() {
 
         {isSearchMode && searchResults.length > 0 && (
           <div className="search-results">
-            <div
-              className="search-pagination-controls"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.75rem",
-                padding: "0.5rem 0 0.75rem 0",
-              }}
-            >
-              <label
-                style={{
-                  marginLeft: "0",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.25rem",
-                  fontSize: "0.75rem",
-                }}
-              >
-                Batch size:
-                <select
-                  value={searchPageSize}
-                  onChange={(e) => {
-                    const newSize = parseInt(e.target.value, 10) || 50;
-                    setSearchPageSize(newSize);
-                    setSearchPage(1);
-                    performSearch(searchQuery, 1, newSize, { append: false });
-                  }}
-                  style={{ padding: "2px 4px" }}
-                >
-                  {[25, 50, 100, 250].map((sz) => (
-                    <option key={sz} value={sz}>
-                      {sz}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {searchAppending && (
-                <span style={{ fontSize: "0.7rem", opacity: 0.6 }}>
-                  Loading more…
-                </span>
-              )}
-            </div>
             <div className="search-results-list">
               {searchResults.map((result, index) => (
                 <div
