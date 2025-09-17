@@ -5,6 +5,7 @@ export interface ProgressBarProps {
   percent: number; // 0-100
   labelPending?: string; // shown while < 100
   labelDone?: string; // shown at 100
+  detail?: string; // optional secondary line (e.g., filename)
 }
 
 /**
@@ -15,6 +16,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
   percent,
   labelPending = "⏳ Loading JSON file...",
   labelDone = "✅ Parsed",
+  detail,
 }) => {
   const p = Math.min(Math.max(isFinite(percent) ? percent : 0, 0), 100);
 
@@ -23,6 +25,11 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
       <span className="progress-label">
         {p < 100 ? labelPending : labelDone}
       </span>
+      {detail && (
+        <span className="progress-detail" title={detail}>
+          {detail}
+        </span>
+      )}
       <div className="progress-bar-container">
         <div className="progress-bar-fill" style={{ width: `${p}%` }} />
         {p < 95 && <div className="progress-bar-sheen" />}
