@@ -11,7 +11,10 @@ import { useFileOperations } from "@/features/file";
 import { Tree, useTreeOperations } from "@/features/tree";
 import { CopyIcon } from "@/shared/CopyIcon";
 import { ToggleThemeButton } from "@/shared/ToggleThemeButton";
+import ProgressBar from "@/shared/ProgressBar";
 import "./App.css";
+
+// ProgressBar now moved to shared component
 
 function App() {
   // File operations hook
@@ -24,6 +27,7 @@ function App() {
     loadLastOpenedFile,
     unloadFile,
     loadMoreNodes,
+    parseProgress,
   } = useFileOperations();
 
   // Other state (non-file related)
@@ -413,7 +417,9 @@ function App() {
           </div>
         )}
 
-        {(fileName || nodes.length > 0) && (
+        {loading && <ProgressBar percent={parseProgress} />}
+
+        {((!loading && fileName) || nodes.length > 0) && (
           <div className="search-container">
             <div className="search-bar">
               <input

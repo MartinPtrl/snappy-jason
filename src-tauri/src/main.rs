@@ -4,8 +4,8 @@ mod state;
 use crate::state::AppState;
 use serde::Serialize;
 use serde_json::Value;
-use std::{fs::{File, create_dir_all}, io::BufReader, sync::Arc, path::PathBuf};
-use tauri::Manager;
+use std::{fs::{File, create_dir_all}, io::{BufReader, Read}, sync::Arc, path::PathBuf};
+use tauri::{Manager, async_runtime::spawn_blocking, Emitter};
 
 fn to_node_with_truncation(parent_ptr: &str, key: Option<&str>, v: &Value, truncate_limit: Option<usize>) -> Node {
     let (value_type, has_children, child_count, preview) = match v {
@@ -56,13 +56,57 @@ struct SearchResponse {
 }
 
 #[tauri::command]
-fn open_file(path: String, state: tauri::State<'_, AppState>) -> Result<Vec<Node>, String> {
-    let f = File::open(path).map_err(|e| e.to_string())?;
-    let reader = BufReader::new(f);
-    // MVP: serde_json; swap to simd-json later
-    let root: Value = serde_json::from_reader(reader).map_err(|e| e.to_string())?;
+async fn open_file(path: String, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Vec<Node>, String> {
+    let path_clone = path.clone();
+    let handle_clone = app_handle.clone();
+    let root: Value = spawn_blocking(move || {
+        let f = File::open(&path_clone).map_err(|e| e.to_string())?;
+        let metadata = f.metadata().ok();
+        let total_bytes = metadata.map(|m| m.len()).unwrap_or(0);
+
+        struct ProgressReader<R: Read> {
+            inner: R,
+            read_bytes: u64,
+            total_bytes: u64,
+            last_emit: u64,
+            app_handle: tauri::AppHandle,
+            path: String,
+        }
+        impl<R: Read> Read for ProgressReader<R> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = self.inner.read(buf)?;
+                self.read_bytes += n as u64;
+                if self.read_bytes - self.last_emit >= 1024 * 1024 || n == 0 {
+                    let percent = if self.total_bytes > 0 { self.read_bytes as f64 / self.total_bytes as f64 * 100.0 } else { 0.0 };
+                    let _ = self.app_handle.emit("parse_progress", serde_json::json!({
+                        "path": self.path,
+                        "readBytes": self.read_bytes,
+                        "totalBytes": self.total_bytes,
+                        "percent": percent,
+                        "done": n == 0,
+                    }));
+                    self.last_emit = self.read_bytes;
+                }
+                Ok(n)
+            }
+        }
+
+        let progress_reader = ProgressReader {
+            inner: f,
+            read_bytes: 0,
+            total_bytes,
+            last_emit: 0,
+            app_handle: handle_clone,
+            path: path_clone,
+        };
+        let reader = BufReader::new(progress_reader);
+        serde_json::from_reader(reader).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Join error: {e}"))??;
+
     let arc = Arc::new(root);
-    let top = list_children(&arc, "", 0, 100); // Load first 100 top-level children
+    let top = list_children(&arc, "", 0, 100);
     *state.doc.write() = Some(arc);
     Ok(top)
 }
@@ -75,49 +119,68 @@ fn load_children(pointer: String, offset: usize, limit: usize, state: tauri::Sta
 }
 
 #[tauri::command]
-fn search(
-    query: String, 
-    search_keys: bool, 
-    search_values: bool, 
+async fn search(
+    query: String,
+    search_keys: bool,
+    search_values: bool,
     search_paths: bool,
     case_sensitive: bool,
     regex: bool,
     whole_word: bool,
-    offset: usize, 
-    limit: usize, 
+    offset: usize,
+    limit: usize,
     state: tauri::State<'_, AppState>
 ) -> Result<SearchResponse, String> {
-    let guard = state.doc.read();
-    let Some(root) = &*guard else { return Err("No document loaded".into()); };
-    
+    // Limit scope of read guard so it's dropped before await (RwLock guard is not Send)
+    let root_arc = {
+        let guard = state.doc.read();
+        let Some(root) = &*guard else { return Err("No document loaded".into()); };
+        root.clone()
+    }; // guard dropped here
+
     if query.trim().is_empty() {
-        return Ok(SearchResponse {
-            results: vec![],
-            total_count: 0,
-            has_more: false,
-        });
+        return Ok(SearchResponse { results: vec![], total_count: 0, has_more: false });
     }
-    
-    let search_query = if case_sensitive { query.clone() } else { query.to_lowercase() };
-    let re = if regex { regex::Regex::new(&query).ok() } else { None };
-    let mut all_results = Vec::new();
-    
-    search_recursive(root, "", &search_query, re.as_ref(), search_keys, search_values, search_paths, case_sensitive, whole_word, &mut all_results);
-    
-    let total_count = all_results.len();
+
+    let search_query_owned = if case_sensitive { query.clone() } else { query.to_lowercase() };
+    let regex_enable = regex;
+    let whole_word_flag = whole_word;
+    let case_sensitive_flag = case_sensitive;
+    let search_keys_flag = search_keys;
+    let search_values_flag = search_values;
+    let search_paths_flag = search_paths;
+    let query_clone_for_regex = query.clone();
+
+    // Offload CPU intensive traversal
+    let (all_results, total_count) = spawn_blocking(move || {
+        let re = if regex_enable { regex::Regex::new(&query_clone_for_regex).ok() } else { None };
+        let mut collected = Vec::new();
+        search_recursive(
+            &root_arc,
+            "",
+            &search_query_owned,
+            re.as_ref(),
+            search_keys_flag,
+            search_values_flag,
+            search_paths_flag,
+            case_sensitive_flag,
+            whole_word_flag,
+            &mut collected,
+        );
+        let total = collected.len();
+        (collected, total)
+    })
+    .await
+    .map_err(|e| format!("Join error: {e}"))?;
+
     let results: Vec<SearchResult> = all_results
         .into_iter()
         .skip(offset)
         .take(limit)
         .collect();
-    
     let has_more = offset + limit < total_count;
-    
-    Ok(SearchResponse {
-        results,
-        total_count,
-        has_more,
-    })
+
+    Ok(SearchResponse { results, total_count, has_more })
 }
 
 fn text_matches(text: &str, query: &str, re: Option<&regex::Regex>, whole_word: bool) -> bool {
