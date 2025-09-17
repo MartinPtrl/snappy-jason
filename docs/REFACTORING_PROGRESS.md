@@ -26,59 +26,59 @@
 
 ---
 
-### 🚧 Phase 2: File Operations Feature (Next)
+### ✅ Phase 2: File Operations Feature (Completed)
 
-**Goal:** Extract file operations into dedicated feature
-**Status:** 🚧 Planning
-**Estimated:** 1-2 hours
+**Goal:** Extract file operations into dedicated feature with progress and cancel
+**Status:** ✅ Complete
+**Date:** September 16–17, 2025
 
-#### Planned Tasks:
+#### Completed Tasks:
 
-- [ ] Create `src/features/file/fileStore.ts` with Zustand store
-- [ ] Extract file operations logic to `useFileOperations.ts` hook
-- [ ] Move file-related functions from App.tsx
-- [ ] Update App.tsx to use new file feature
-- [ ] Test file loading/saving functionality
+- [x] Create `src/features/file/fileStore.ts` with Zustand store
+- [x] Extract file operations logic to `useFileOperations.ts` hook
+- [x] Persist last-opened file and restore on startup
+- [x] Show parse progress and support cancellation
+- [x] Update `App.tsx` to use new file feature
 
-#### Target Functions to Extract:
+#### Commands Used:
 
-- `loadFile()` - File loading logic
-- `saveLastOpenedFile()` - Config persistence
-- `loadLastOpenedFile()` - Config restoration
-- `clearLastOpenedFile()` - Config cleanup
-- `unloadFile()` - File clearing logic
+- `open_file`, `load_children`, `save_last_opened_file`, `load_last_opened_file`, `clear_last_opened_file`, `cancel_parse`
 
 ---
 
-### 📋 Phase 3: Tree Feature (Planned)
+### ✅ Phase 3: Tree Feature (Completed)
 
 **Goal:** Extract tree view components and infinite scroll
-**Status:** 📋 Planned
-**Estimated:** 2-3 hours
+**Status:** ✅ Complete
+**Date:** September 16–17, 2025
 
-#### Planned Tasks:
+#### Completed Tasks:
 
-- [ ] Move `TreeNode` and `TreeNodeContainer` to `src/features/tree/`
-- [ ] Create `treeStore.ts` for expansion state management
-- [ ] Extract infinite scroll logic to `useInfiniteScroll.ts`
-- [ ] Create `useTreeOperations.ts` for tree-specific logic
-- [ ] Update components to use new tree feature
+- [x] Move `Tree`, `TreeNode`, `TreeNodeContainer` to `src/features/tree/`
+- [x] Create `treeStore.ts` for expansion state
+- [x] Implement `useTreeOperations.ts` (expand one level, collapse all)
+- [x] Root-level infinite scroll via IntersectionObserver
 
 ---
 
-### 📋 Phase 4: Search Feature (Planned)
+### � Phase 4: Search Feature (In Progress)
 
-**Goal:** Extract search functionality
-**Status:** 📋 Planned
-**Estimated:** 2-3 hours
+**Goal:** Integrate scalable search with paging and highlighting
+**Status:** � In Progress
+**Date:** September 16–17, 2025
 
-#### Planned Tasks:
+#### Current Functionality:
 
-- [ ] Create `src/features/search/searchStore.ts`
-- [ ] Extract search logic to `useSearch.ts` hook
-- [ ] Move search components to search feature
-- [ ] Implement search result pagination with infinite scroll
-- [ ] Update App.tsx to use search feature
+- [x] Search keys, values, and/or paths
+- [x] Options: case sensitive, whole word, regex (exclusive where applicable)
+- [x] Infinite scroll of results with `offset/limit` paging
+- [x] Highlighting of matches and optional full string preview per result
+- [x] Empty-search target notification
+
+#### Next Steps:
+
+- [ ] Extract search state to `src/features/search/` (optional)
+- [ ] Add unit tests for search options and paging
 
 ---
 
@@ -149,5 +149,5 @@ If any phase causes issues:
 
 ---
 
-**Last Updated:** September 12, 2025
-**Next Review:** After Phase 2 completion
+**Last Updated:** September 17, 2025
+**Next Review:** After Phase 4 completion

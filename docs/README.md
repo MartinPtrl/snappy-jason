@@ -42,6 +42,7 @@ Welcome to the Snappy JSON Viewer documentation! This folder contains all the in
 - What's been completed and what's next
 - How to contribute without breaking existing functionality
 - Performance considerations and debugging tips
+- Capabilities added this week: auto-update, parse progress with cancel, infinite scroll at root level, and enhanced search options with infinite scroll
 
 ## 🎯 Project Goals
 
@@ -67,5 +68,5 @@ These docs are living documents that evolve with the project:
 
 ---
 
-**Last Updated:** September 12, 2025  
+**Last Updated:** September 17, 2025  
 **Maintained by:** The Snappy Jason development team

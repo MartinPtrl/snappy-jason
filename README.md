@@ -13,6 +13,9 @@ A lightning-fast, desktop JSON viewer built with Tauri, React, and Rust. Snappy 
 - 🎯 **Sticky Header** - Header, filename, and search stay accessible while scrolling
 - 🌳 **Tree View** - Expandable/collapsible tree structure for easy navigation
 - 🎨 **Clean UI** - Modern, responsive interface optimized for JSON viewing
+- ⬇️ **Auto-Update** - Checks for updates and prompts to restart when ready
+- 📈 **Progress + Cancel** - Visual parse progress with the ability to cancel large file loads
+- ♾️ **Infinite Scroll** - Loads more items as you scroll for large root arrays/objects
 
 ## Getting Started
 
@@ -47,8 +50,10 @@ yarn tauri build
 1. **Open a JSON file**: Drag and drop a JSON file onto the application window
 2. **Navigate**: Click on objects and arrays to expand/collapse them
 3. **Search**: Use the search bar to find specific keys, values, or paths
-4. **Search Options**: Toggle search options for keys, values, paths, and case sensitivity
+4. **Search Options**: Toggle targets (keys, values, paths). Options include case-sensitive, whole-word, and regex (mutually exclusive with others when applicable)
 5. **Clear**: Use the "Clear" button to unload the current file
+6. **Expand/Collapse**: Use tree controls to expand one visible level or collapse all
+7. **Updates**: The header update icon checks for updates; when an update is downloaded, you’ll be prompted to restart
 
 ## Tech Stack
 
