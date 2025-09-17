@@ -15,9 +15,12 @@ export function Updater({ checkOnStartup = true }: UpdaterProps) {
 
   const checkForUpdates = async () => {
     try {
+      console.log('Checking for updates...');
       const update: Update | null = await check();
+      console.log('Update check result:', update);
       
       if (update?.available) {
+        console.log('Update available:', update);
         setUpdateAvailable(true);
         
         // Auto-download the update
@@ -40,6 +43,8 @@ export function Updater({ checkOnStartup = true }: UpdaterProps) {
         
         // After download completes, ask user to restart
         console.log('Update downloaded and installed, ready to restart');
+      } else {
+        console.log('No updates available');
       }
     } catch (err) {
       console.error('Failed to check for updates:', err);
