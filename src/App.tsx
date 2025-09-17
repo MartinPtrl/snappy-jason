@@ -413,7 +413,7 @@ function App() {
           </div>
         )}
 
-        {loading && <ProgressBar percent={parseProgress} />}
+        {/* Progress bar moved to centered overlay */}
 
         {((!loading && fileName) || nodes.length > 0) && (
           <div className="search-container">
@@ -661,6 +661,11 @@ function App() {
       {isDragOver && (
         <div className="drag-overlay">
           <div className="drag-message">📁 Drop your JSON file here</div>
+        </div>
+      )}
+      {loading && nodes.length === 0 && (
+        <div className="progress-center-overlay">
+          <ProgressBar percent={parseProgress} />
         </div>
       )}
     </div>

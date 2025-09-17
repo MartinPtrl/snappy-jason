@@ -12,6 +12,8 @@
   border-radius: 4px;
   box-shadow: inset 0 0 2px rgba(0, 0, 0, 0.6);
   background: var(--color-border, #444);
+  width: 260px;
+  height: 10px;
 }
 .progress-bar-fill {
   position: absolute;
