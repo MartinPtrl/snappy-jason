@@ -2,7 +2,7 @@ import { useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { useFileStore } from "./fileStore";
-import type { Node } from "@/shared/types";
+import type { Node } from "@shared/types";
 
 export const useFileOperations = () => {
   const {

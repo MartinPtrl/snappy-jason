@@ -1,4 +1,4 @@
-import type { TreeNodeProps } from "@/shared/types";
+import type { TreeNodeProps } from "@shared/types";
 
 export function TreeNode({
   node,
