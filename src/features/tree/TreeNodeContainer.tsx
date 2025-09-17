@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { TreeNodeProps, Node } from "@/shared/types";
+import type { TreeNodeProps, Node } from "@shared/types";
 
 interface TreeNodeContainerProps extends Omit<TreeNodeProps, "children"> {
   TreeNodeComponent: React.ComponentType<TreeNodeProps>;

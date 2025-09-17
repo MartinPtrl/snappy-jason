@@ -96,9 +96,9 @@ We're refactoring **incrementally** to maintain stability:
 
 ### **Import Strategy**
 
-- **Absolute imports:** From feature root (`@/features/file`)
+- **Absolute imports:** From feature root (`@features/file`)
 - **Relative imports:** Within same feature only
-- **Shared imports:** From `@/shared/`
+- **Shared imports:** From `@shared/`
 
 ## 📊 Current Progress
 

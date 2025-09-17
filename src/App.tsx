@@ -9,8 +9,7 @@ import type {
 } from "@/shared/types";
 import { useFileOperations } from "@/features/file";
 import { Tree, useTreeOperations } from "@/features/tree";
-import { CopyIcon } from "@/shared/CopyIcon";
-import { ToggleThemeButton } from "@/shared/ToggleThemeButton";
+import { CopyIcon, ProgressBar, ToggleThemeButton } from "@shared";
 import { Updater } from "@/shared/Updater";
 import "./App.css";
 
@@ -25,6 +24,8 @@ function App() {
     loadLastOpenedFile,
     unloadFile,
     loadMoreNodes,
+    parseProgress,
+    cancelLoad,
   } = useFileOperations();
 
   // Other state (non-file related)
@@ -210,6 +211,7 @@ function App() {
               );
               if (jsonFile) {
                 console.log("📁 Loading JSON file via Tauri:", jsonFile);
+                handleFileUnload();
                 handleFileLoad(jsonFile);
               } else {
                 // Show error in UI by setting a temporary error state
@@ -415,7 +417,9 @@ function App() {
           </div>
         )}
 
-        {(fileName || nodes.length > 0) && (
+        {/* Progress bar moved to centered overlay */}
+
+        {((!loading && fileName) || nodes.length > 0) && (
           <div className="search-container">
             <div className="search-bar">
               <input
@@ -661,6 +665,15 @@ function App() {
       {isDragOver && (
         <div className="drag-overlay">
           <div className="drag-message">📁 Drop your JSON file here</div>
+        </div>
+      )}
+      {loading && nodes.length === 0 && (
+        <div className="progress-center-overlay">
+          <ProgressBar
+            percent={parseProgress}
+            detail={fileName || undefined}
+            onCancel={cancelLoad}
+          />
         </div>
       )}
     </div>

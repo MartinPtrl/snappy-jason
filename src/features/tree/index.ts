@@ -9,4 +9,4 @@ export { Tree } from "./Tree";
 export { getValueAtPointer } from "./treeUtils";
 
 // Re-export for convenience
-export type { TreeNodeProps } from "@/shared/types";
+export type { TreeNodeProps } from "@shared/types";
