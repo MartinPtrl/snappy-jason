@@ -1,11 +1,8 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Node, SearchOptions } from "@/shared/types";
+import type { Node, SearchOptions } from "@shared/types";
 import { useTreeOperations } from "./useTreeOperations";
-import { CopyIcon } from "@/shared/CopyIcon";
-import { ExpandIcon } from "@/shared/ExpandIcon";
-import { highlightText } from "@/shared/highlightUtils";
-
+import { CopyIcon, ExpandIcon, highlightText } from "@shared";
 interface TreeProps {
   node: Node;
   level: number;
@@ -61,50 +58,54 @@ export function Tree({ node, level, searchQuery, searchOptions }: TreeProps) {
   );
 
   // Expand all children of this node recursively
-  const expandNodeChildren = useCallback(async (targetPointer: string) => {
-    try {
-      // Queue to track nodes that need to be expanded
-      const expansionQueue: string[] = [targetPointer];
-      const processedNodes = new Set<string>();
+  const expandNodeChildren = useCallback(
+    async (targetPointer: string) => {
+      try {
+        // Queue to track nodes that need to be expanded
+        const expansionQueue: string[] = [targetPointer];
+        const processedNodes = new Set<string>();
 
-      while (expansionQueue.length > 0) {
-        const currentPointer = expansionQueue.shift()!;
-        
-        // Skip if already processed
-        if (processedNodes.has(currentPointer)) {
-          continue;
-        }
-        processedNodes.add(currentPointer);
+        while (expansionQueue.length > 0) {
+          const currentPointer = expansionQueue.shift()!;
 
-        // Expand the current node
-        handleExpand(currentPointer);
-        // Wait for expansion to take effect
-        await new Promise(resolve => setTimeout(resolve, 100));
+          // Skip if already processed
+          if (processedNodes.has(currentPointer)) {
+            continue;
+          }
+          processedNodes.add(currentPointer);
 
-        // Load children of the current node
-        const children = await invoke<Node[]>("load_children", {
-          pointer: currentPointer,
-          offset: 0,
-          limit: 10000
-        });
+          // Expand the current node
+          handleExpand(currentPointer);
+          // Wait for expansion to take effect
+          await new Promise((resolve) => setTimeout(resolve, 100));
 
-        // Find all expandable children and add them to the queue
-        const expandableChildren = children.filter(child => 
-          (child.value_type === 'object' || child.value_type === 'array') && 
-          child.has_children
-        );
+          // Load children of the current node
+          const children = await invoke<Node[]>("load_children", {
+            pointer: currentPointer,
+            offset: 0,
+            limit: 10000,
+          });
 
-        // Add all expandable children to the queue for processing
-        for (const child of expandableChildren) {
-          if (!processedNodes.has(child.pointer)) {
-            expansionQueue.push(child.pointer);
+          // Find all expandable children and add them to the queue
+          const expandableChildren = children.filter(
+            (child) =>
+              (child.value_type === "object" || child.value_type === "array") &&
+              child.has_children
+          );
+
+          // Add all expandable children to the queue for processing
+          for (const child of expandableChildren) {
+            if (!processedNodes.has(child.pointer)) {
+              expansionQueue.push(child.pointer);
+            }
           }
         }
+      } catch (error) {
+        console.error("Failed to expand node children:", error);
       }
-    } catch (error) {
-      console.error("Failed to expand node children:", error);
-    }
-  }, [handleExpand]);
+    },
+    [handleExpand]
+  );
 
   // Function to get the actual JSON value for copying
   const getActualValue = useCallback(async (): Promise<string> => {
@@ -117,51 +118,58 @@ export function Tree({ node, level, searchQuery, searchOptions }: TreeProps) {
   }, [node.pointer]);
 
   // Function to collapse all children recursively
-  const collapseAllChildren = useCallback(async (targetPointer: string, excludeRoot = false) => {
-    try {
-      // Collect all expanded descendants in a breadth-first manner
-      const allExpandedNodes: string[] = [];
-      const queue: string[] = [targetPointer];
-      const visited = new Set<string>();
+  const collapseAllChildren = useCallback(
+    async (targetPointer: string, excludeRoot = false) => {
+      try {
+        // Collect all expanded descendants in a breadth-first manner
+        const allExpandedNodes: string[] = [];
+        const queue: string[] = [targetPointer];
+        const visited = new Set<string>();
 
-      while (queue.length > 0) {
-        const currentPointer = queue.shift()!;
-        
-        if (visited.has(currentPointer)) continue;
-        visited.add(currentPointer);
+        while (queue.length > 0) {
+          const currentPointer = queue.shift()!;
 
-        // Only process if this node is expanded
-        if (expandedNodes.has(currentPointer)) {
-          // Add to collapse list, but exclude root if requested
-          if (!excludeRoot || currentPointer !== targetPointer) {
-            allExpandedNodes.push(currentPointer);
-          }
-          
-          // Load children and add expandable ones to queue
-          const childNodes = await invoke<Node[]>("load_children", {
-            pointer: currentPointer,
-            offset: 0,
-            limit: 10000
-          });
+          if (visited.has(currentPointer)) continue;
+          visited.add(currentPointer);
 
-          for (const child of childNodes) {
-            if ((child.value_type === 'object' || child.value_type === 'array') && 
-                child.has_children && !visited.has(child.pointer)) {
-              queue.push(child.pointer);
+          // Only process if this node is expanded
+          if (expandedNodes.has(currentPointer)) {
+            // Add to collapse list, but exclude root if requested
+            if (!excludeRoot || currentPointer !== targetPointer) {
+              allExpandedNodes.push(currentPointer);
+            }
+
+            // Load children and add expandable ones to queue
+            const childNodes = await invoke<Node[]>("load_children", {
+              pointer: currentPointer,
+              offset: 0,
+              limit: 10000,
+            });
+
+            for (const child of childNodes) {
+              if (
+                (child.value_type === "object" ||
+                  child.value_type === "array") &&
+                child.has_children &&
+                !visited.has(child.pointer)
+              ) {
+                queue.push(child.pointer);
+              }
             }
           }
         }
-      }
 
-      // Collapse all nodes (deepest first by reversing the array)
-      allExpandedNodes.reverse();
-      for (const pointer of allExpandedNodes) {
-        handleExpand(pointer); // This toggles, so it will collapse expanded nodes
+        // Collapse all nodes (deepest first by reversing the array)
+        allExpandedNodes.reverse();
+        for (const pointer of allExpandedNodes) {
+          handleExpand(pointer); // This toggles, so it will collapse expanded nodes
+        }
+      } catch (error) {
+        console.error("Failed to collapse all children:", error);
       }
-    } catch (error) {
-      console.error("Failed to collapse all children:", error);
-    }
-  }, [expandedNodes, handleExpand]);
+    },
+    [expandedNodes, handleExpand]
+  );
 
   // Function to toggle between expand all and collapse all
   const handleExpandCollapseAll = useCallback(async () => {
@@ -173,7 +181,13 @@ export function Tree({ node, level, searchQuery, searchOptions }: TreeProps) {
       // If node is collapsed, expand it and all its children
       await expandNodeChildren(node.pointer);
     }
-  }, [isExpanded, collapseAllChildren, expandNodeChildren, node.pointer, handleExpand]);
+  }, [
+    isExpanded,
+    collapseAllChildren,
+    expandNodeChildren,
+    node.pointer,
+    handleExpand,
+  ]);
 
   // Load children if this node should be expanded but has no children loaded
   useEffect(() => {
@@ -270,8 +284,8 @@ export function Tree({ node, level, searchQuery, searchOptions }: TreeProps) {
             : node.key || "root"}
           <CopyIcon text={node.key || "root"} title="Copy key" />
           {node.child_count > 0 && (
-            <ExpandIcon 
-              onExpand={handleExpandCollapseAll} 
+            <ExpandIcon
+              onExpand={handleExpandCollapseAll}
               isExpanded={isExpanded}
             />
           )}
@@ -289,11 +303,12 @@ export function Tree({ node, level, searchQuery, searchOptions }: TreeProps) {
           {searchQuery && searchOptions
             ? highlightText(node.preview, searchQuery, searchOptions)
             : node.preview}
-          <CopyIcon 
-            text={node.preview} 
+          <CopyIcon
+            text={node.preview}
             title="Copy value"
             getActualValue={
-              (node.value_type === 'object' || node.value_type === 'array') && node.has_children
+              (node.value_type === "object" || node.value_type === "array") &&
+              node.has_children
                 ? getActualValue
                 : undefined
             }

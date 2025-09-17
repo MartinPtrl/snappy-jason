@@ -6,15 +6,11 @@ import type {
   SearchResult,
   SearchResponse,
   SearchOptions,
-} from "@/shared/types";
-import { useFileOperations } from "@/features/file";
-import { Tree, useTreeOperations } from "@/features/tree";
-import { CopyIcon } from "@/shared/CopyIcon";
-import { ToggleThemeButton } from "@/shared/ToggleThemeButton";
-import ProgressBar from "@/shared/ProgressBar";
+} from "@shared/types";
+import { useFileOperations } from "@features/file";
+import { Tree, useTreeOperations } from "@features/tree";
+import { CopyIcon, ProgressBar, ToggleThemeButton } from "@shared";
 import "./App.css";
-
-// ProgressBar now moved to shared component
 
 function App() {
   // File operations hook

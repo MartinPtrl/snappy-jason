@@ -18,8 +18,10 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@/features/*": ["src/features/*"],
-      "@/shared/*": ["src/shared/*"]
+      "@features": ["src/features"],
+      "@shared": ["src/shared"],
+      "@features/*": ["src/features/*"],
+      "@shared/*": ["src/shared/*"]
     },
 
     /* Linting */

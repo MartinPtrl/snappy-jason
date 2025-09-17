@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Node } from "@/shared/types";
+import type { Node } from "@shared/types";
 
 export interface FileState {
   // State
