@@ -51,6 +51,20 @@
   font-size: 12px;
   opacity: 0.8;
 }
+.progress-cancel {
+  margin-top: 6px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border, #666);
+  background: var(--color-bg-elevated, #222);
+  color: var(--color-fg, #eee);
+  cursor: pointer;
+}
+.progress-cancel:hover {
+  background: var(--color-bg-hover, #2a2a2a);
+}
 @keyframes progress-sheen {
   0% {
     transform: translateX(0);

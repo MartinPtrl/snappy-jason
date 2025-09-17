@@ -6,6 +6,7 @@ export interface ProgressBarProps {
   labelPending?: string; // shown while < 100
   labelDone?: string; // shown at 100
   detail?: string; // optional secondary line (e.g., filename)
+  onCancel?: () => void; // optional cancel handler to display a button
 }
 
 /**
@@ -17,6 +18,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
   labelPending = "⏳ Loading JSON file...",
   labelDone = "✅ Parsed",
   detail,
+  onCancel,
 }) => {
   const p = Math.min(Math.max(isFinite(percent) ? percent : 0, 0), 100);
 
@@ -35,6 +37,11 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
         {p < 95 && <div className="progress-bar-sheen" />}
       </div>
       <span className="progress-percent">{p.toFixed(1)}%</span>
+      {onCancel && p < 100 && (
+        <button className="progress-cancel" onClick={onCancel}>
+          Cancel
+        </button>
+      )}
     </div>
   );
 };

@@ -24,6 +24,7 @@ function App() {
     unloadFile,
     loadMoreNodes,
     parseProgress,
+    cancelLoad,
   } = useFileOperations();
 
   // Other state (non-file related)
@@ -666,7 +667,11 @@ function App() {
       )}
       {loading && nodes.length === 0 && (
         <div className="progress-center-overlay">
-          <ProgressBar percent={parseProgress} detail={fileName || undefined} />
+          <ProgressBar
+            percent={parseProgress}
+            detail={fileName || undefined}
+            onCancel={cancelLoad}
+          />
         </div>
       )}
     </div>

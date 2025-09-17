@@ -59,6 +59,10 @@ struct SearchResponse {
 async fn open_file(path: String, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Vec<Node>, String> {
     let path_clone = path.clone();
     let handle_clone = app_handle.clone();
+    // obtain a cancellation flag clone to share with background thread
+    let cancel_flag = state.cancel_parse.clone();
+    // reset cancel flag at the beginning of a new parse
+    cancel_flag.store(false, std::sync::atomic::Ordering::SeqCst);
     let root: Value = spawn_blocking(move || {
         let f = File::open(&path_clone).map_err(|e| e.to_string())?;
         let metadata = f.metadata().ok();
@@ -71,9 +75,14 @@ async fn open_file(path: String, state: tauri::State<'_, AppState>, app_handle: 
             last_emit: u64,
             app_handle: tauri::AppHandle,
             path: String,
+            cancel: Arc<std::sync::atomic::AtomicBool>,
         }
         impl<R: Read> Read for ProgressReader<R> {
             fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                // if canceled, stop reading
+                if self.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Ok(0);
+                }
                 let n = self.inner.read(buf)?;
                 self.read_bytes += n as u64;
                 if self.read_bytes - self.last_emit >= 1024 * 1024 || n == 0 {
@@ -84,6 +93,7 @@ async fn open_file(path: String, state: tauri::State<'_, AppState>, app_handle: 
                         "totalBytes": self.total_bytes,
                         "percent": percent,
                         "done": n == 0,
+                        "canceled": self.cancel.load(std::sync::atomic::Ordering::SeqCst),
                     }));
                     self.last_emit = self.read_bytes;
                 }
@@ -98,6 +108,7 @@ async fn open_file(path: String, state: tauri::State<'_, AppState>, app_handle: 
             last_emit: 0,
             app_handle: handle_clone,
             path: path_clone,
+            cancel: cancel_flag,
         };
         let reader = BufReader::new(progress_reader);
         serde_json::from_reader(reader).map_err(|e| e.to_string())
@@ -109,6 +120,12 @@ async fn open_file(path: String, state: tauri::State<'_, AppState>, app_handle: 
     let top = list_children(&arc, "", 0, 100);
     *state.doc.write() = Some(arc);
     Ok(top)
+}
+
+#[tauri::command]
+fn cancel_parse(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.cancel_parse.store(true, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
 }
 
 #[tauri::command]
@@ -453,6 +470,7 @@ pub fn main() {
             open_file, 
             load_children, 
             search,
+            cancel_parse,
             save_last_opened_file,
             load_last_opened_file,
             clear_last_opened_file,
