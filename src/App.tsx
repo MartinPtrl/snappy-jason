@@ -209,6 +209,7 @@ function App() {
               );
               if (jsonFile) {
                 console.log("📁 Loading JSON file via Tauri:", jsonFile);
+                handleFileUnload();
                 handleFileLoad(jsonFile);
               } else {
                 // Show error in UI by setting a temporary error state
@@ -665,7 +666,7 @@ function App() {
       )}
       {loading && nodes.length === 0 && (
         <div className="progress-center-overlay">
-          <ProgressBar percent={parseProgress} />
+          <ProgressBar percent={parseProgress} detail={fileName || undefined} />
         </div>
       )}
     </div>

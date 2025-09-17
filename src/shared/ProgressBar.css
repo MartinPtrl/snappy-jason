@@ -6,6 +6,14 @@
 .progress-wrapper span.progress-label {
   font-weight: 400;
 }
+.progress-wrapper span.progress-detail {
+  max-width: 360px;
+  font-size: 12px;
+  color: var(--color-muted, #888);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .progress-bar-container {
   position: relative;
   overflow: hidden;

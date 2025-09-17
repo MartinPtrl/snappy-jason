@@ -53,6 +53,8 @@ export const useFileOperations = () => {
       setLoading(true);
       setParseProgress(0);
       setError("");
+      // Set a provisional filename early so UI can display it during parsing
+      setFileName(path.split("/").pop() || path);
 
       const currentId = ++latestRequestIdRef.current;
 
