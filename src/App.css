@@ -87,9 +87,6 @@ body {
   color: var(--text-color);
 }
 
-button {
-}
-
 /* App layout */
 .app {
   min-height: 100vh;
@@ -432,11 +429,17 @@ button {
 .node-preview {
   color: var(--text-color);
   font-style: italic;
-  white-space: nowrap;
+  white-space: nowrap; /* overridden inline to pre for focused snippet pre formatting */
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
   margin-left: 0.5rem;
+  position: relative;
+}
+
+.node-preview:hover {
+  overflow-x: auto;
+  text-overflow: clip;
 }
 
 .node-children {

@@ -1,12 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type {
-  Node,
-  SearchResult,
-  SearchResponse,
-  SearchOptions,
-} from "@/shared/types";
+import type { Node, SearchResult, SearchOptions } from "@/shared/types";
 import { useFileOperations } from "@/features/file";
 import { Tree, useTreeOperations } from "@/features/tree";
 import { CopyIcon, ProgressBar, ToggleThemeButton } from "@shared";
@@ -39,6 +34,10 @@ function App() {
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  // Track expanded preview state for search results (by node pointer)
+  const [expandedSearchPreviews, setExpandedSearchPreviews] = useState<
+    Record<string, boolean>
+  >({});
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string>("");
   const [isSearchMode, setIsSearchMode] = useState(false);
@@ -52,7 +51,7 @@ function App() {
   });
   const [searchStats, setSearchStats] = useState({
     totalCount: 0,
-    hasMore: false,
+    hasMore: false, // For streaming: true while streaming (until done event)
   });
   const [showSearchTargetNotification, setShowSearchTargetNotification] =
     useState(false);
@@ -294,12 +293,25 @@ function App() {
     }
   };
 
-  const performSearch = async (
-    query: string,
-    offset: number = 0,
-    limit: number = 100
-  ) => {
+  // Streaming search implementation
+  const currentSearchIdRef = useRef<number>(0);
+  const unlistenBatchRef = useRef<(() => void) | null>(null);
+  const unlistenDoneRef = useRef<(() => void) | null>(null);
+
+  const cleanupSearchListeners = () => {
+    if (unlistenBatchRef.current) {
+      unlistenBatchRef.current();
+      unlistenBatchRef.current = null;
+    }
+    if (unlistenDoneRef.current) {
+      unlistenDoneRef.current();
+      unlistenDoneRef.current = null;
+    }
+  };
+
+  const performSearch = async (query: string) => {
     if (!query.trim()) {
+      cleanupSearchListeners();
       setSearchResults([]);
       setSearchStats({ totalCount: 0, hasMore: false });
       setIsSearchMode(false);
@@ -307,24 +319,31 @@ function App() {
       return;
     }
 
-    // Check if at least one search target is selected
     if (
       !searchOptions.searchKeys &&
       !searchOptions.searchValues &&
       !searchOptions.searchPaths
     ) {
+      cleanupSearchListeners();
       setShowSearchTargetNotification(true);
-      setTimeout(() => setShowSearchTargetNotification(false), 3000); // Hide after 3 seconds
+      setTimeout(() => setShowSearchTargetNotification(false), 3000);
       return;
     }
 
+    // New search: bump id and cleanup old listeners
+    cleanupSearchListeners();
+    const newId = currentSearchIdRef.current + 1;
+    currentSearchIdRef.current = newId;
+    setSearchResults([]);
+    setSearchStats({ totalCount: 0, hasMore: true });
     setSearchLoading(true);
     setSearchError("");
     setIsSearchMode(true);
     setShowSearchTargetNotification(false);
 
     try {
-      const response = await invoke<SearchResponse>("search", {
+      // Start streaming search
+      const startedId = await invoke<number>("search_stream", {
         query: query.trim(),
         searchKeys: searchOptions.searchKeys,
         searchValues: searchOptions.searchValues,
@@ -332,27 +351,49 @@ function App() {
         caseSensitive: searchOptions.caseSensitive,
         regex: searchOptions.regex,
         wholeWord: searchOptions.wholeWord,
-        offset,
-        limit,
       });
 
-      if (offset === 0) {
-        // New search
-        setSearchResults(response.results);
-      } else {
-        // Load more results
-        setSearchResults((prev) => [...prev, ...response.results]);
+      if (startedId !== newId) {
+        // Another search started even before invoke returned; ignore
+        return;
       }
 
-      setSearchStats({
-        totalCount: response.total_count,
-        hasMore: response.has_more,
+      // Listen for batches
+      unlistenBatchRef.current = await listen<any>("search_batch", (event) => {
+        const payload: any = event.payload;
+        if (!payload || typeof payload !== "object") return;
+        if (payload.id !== currentSearchIdRef.current) return; // stale
+        const batch: SearchResult[] = payload.batch || [];
+        if (batch.length) {
+          setSearchResults((prev) => [...prev, ...batch]);
+          setSearchStats((prev) => ({
+            ...prev,
+            totalCount: payload.total_so_far ?? prev.totalCount,
+            hasMore: true, // still streaming
+          }));
+        }
+      });
+
+      // Listen for completion
+      unlistenDoneRef.current = await listen<any>("search_done", (event) => {
+        const payload: any = event.payload;
+        if (!payload || typeof payload !== "object") return;
+        if (payload.id !== currentSearchIdRef.current) return; // stale
+        setSearchStats((prev) => ({
+          ...prev,
+          totalCount: payload.total ?? prev.totalCount,
+          hasMore: false,
+        }));
+        setSearchLoading(false);
+        cleanupSearchListeners();
       });
     } catch (error) {
-      console.error("Search failed:", error);
-      setSearchError(`Search failed: ${error}`);
-    } finally {
-      setSearchLoading(false);
+      // Handle start failures
+      if (currentSearchIdRef.current === newId) {
+        setSearchLoading(false);
+        setSearchError(`Search failed: ${error}`);
+        setSearchStats({ totalCount: 0, hasMore: false });
+      }
     }
   };
 
@@ -369,11 +410,7 @@ function App() {
     }, 300);
   };
 
-  const loadMoreResults = () => {
-    if (searchStats.hasMore && !searchLoading) {
-      performSearch(searchQuery, searchResults.length);
-    }
-  };
+  // Pagination disabled in streaming mode
 
   const handleFileUnload = useCallback(() => {
     // Clear search state
@@ -526,7 +563,7 @@ function App() {
             </div>
 
             {searchLoading && (
-              <div className="search-loading">🔍 Searching...</div>
+              <div className="search-loading">🔍 Streaming results...</div>
             )}
 
             {showSearchTargetNotification && (
@@ -540,11 +577,20 @@ function App() {
               <div className="error-message">❌ {searchError}</div>
             )}
 
-            {isSearchMode && searchStats.totalCount > 0 && (
+            {isSearchMode && (
               <div className="search-stats">
-                Found {searchStats.totalCount} results
-                {searchStats.hasMore &&
-                  ` (showing first ${searchResults.length})`}
+                {searchLoading ? (
+                  <>
+                    Found {searchStats.totalCount} so far (showing{" "}
+                    {searchResults.length})
+                  </>
+                ) : (
+                  <>
+                    Found {searchStats.totalCount} results
+                    {searchResults.length !== searchStats.totalCount &&
+                      ` (showing ${searchResults.length})`}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -618,6 +664,41 @@ function App() {
                         text={result.node.pointer || "/"}
                         title="Copy path"
                       />
+                      {(() => {
+                        // Determine if this node can have a clipped snippet (string preview with search active)
+                        const pointer = result.node.pointer;
+                        const isString = result.node.value_type === "string";
+                        const showToggle =
+                          isString &&
+                          searchQuery.trim().length > 0 &&
+                          searchOptions.searchValues;
+                        if (!showToggle) return null;
+                        const isExpanded = !!expandedSearchPreviews[pointer];
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedSearchPreviews((prev) => ({
+                                ...prev,
+                                [pointer]: !isExpanded,
+                              }));
+                            }}
+                            title={isExpanded ? "Show less" : "Show full"}
+                            style={{
+                              marginLeft: 8,
+                              padding: 0,
+                              border: "none",
+                              background: "transparent",
+                              color: "#0a84ff",
+                              cursor: "pointer",
+                              fontSize: "0.75rem",
+                            }}
+                          >
+                            {isExpanded ? "Show less" : "Show full"}
+                          </button>
+                        );
+                      })()}
                     </span>
                   </div>
                   <div className="search-result-content">
@@ -626,23 +707,15 @@ function App() {
                       level={0}
                       searchQuery={searchQuery}
                       searchOptions={searchOptions}
+                      externalShowFull={
+                        !!expandedSearchPreviews[result.node.pointer]
+                      }
+                      suppressInternalToggle={true}
                     />
                   </div>
                 </div>
               ))}
             </div>
-
-            {searchStats.hasMore && (
-              <div className="load-more-container">
-                <button
-                  onClick={loadMoreResults}
-                  disabled={searchLoading}
-                  className="load-more-button"
-                >
-                  {searchLoading ? "Loading..." : "Load More Results"}
-                </button>
-              </div>
-            )}
           </div>
         )}
 

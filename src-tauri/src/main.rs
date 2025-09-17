@@ -200,6 +200,155 @@ async fn search(
     Ok(SearchResponse { results, total_count, has_more })
 }
 
+// Streaming search: emits incremental batches so UI can render partial results.
+// Events:
+//  - "search_batch" { id, batch: [SearchResult], total_so_far, elapsed_ms }
+//  - "search_done" { id, total, elapsed_ms }
+#[tauri::command]
+async fn search_stream(
+    query: String,
+    search_keys: bool,
+    search_values: bool,
+    search_paths: bool,
+    case_sensitive: bool,
+    regex: bool,
+    whole_word: bool,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>
+) -> Result<u64, String> {
+    let root_arc = {
+        let guard = state.doc.read();
+        let Some(root) = &*guard else { return Err("No document loaded".into()); };
+        root.clone()
+    };
+    if query.trim().is_empty() { return Err("Empty query".into()); }
+
+    let case_sensitive_flag = case_sensitive;
+    let query_norm = if case_sensitive_flag { query.clone() } else { query.to_lowercase() };
+    let re_opt = if regex { regex::Regex::new(&query).ok() } else { None };
+    let batch_size: usize = 10; // default batch size
+
+    let id = state.active_search_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let handle_clone = app_handle.clone();
+
+    spawn_blocking(move || {
+        let mut stack: Vec<(&Value, String)> = vec![(root_arc.as_ref(), String::from(""))];
+        let mut total_so_far: usize = 0;
+        let start_instant = std::time::Instant::now();
+        let mut batch: Vec<SearchResult> = Vec::with_capacity(batch_size);
+
+        while let Some((value, pointer)) = stack.pop() {
+            // path match
+            if search_paths {
+                let path_check = if case_sensitive_flag { pointer.clone() } else { pointer.to_lowercase() };
+                let path_match = if let Some(re) = &re_opt { re.is_match(&path_check) } else if whole_word { path_check.split(|c: char| !c.is_alphanumeric()).any(|w| w == query_norm) } else { path_check.contains(&query_norm) };
+                if path_match {
+                    batch.push(SearchResult {
+                        node: create_node_for_path(value, &pointer),
+                        match_type: "path".into(),
+                        match_text: pointer.clone(),
+                        context: None,
+                    });
+                }
+            }
+            match value {
+                Value::Object(map) => {
+                    for (k, v) in map.iter() {
+                        if search_keys {
+                            let key_check = if case_sensitive_flag { k.to_string() } else { k.to_lowercase() };
+                            let key_match = if let Some(re) = &re_opt { re.is_match(&key_check) } else if whole_word { key_check.split(|c: char| !c.is_alphanumeric()).any(|w| w == query_norm) } else { key_check.contains(&query_norm) };
+                            if key_match {
+                                batch.push(SearchResult {
+                                    node: to_node_with_truncation(&pointer, Some(k), v, None),
+                                    match_type: "key".into(),
+                                    match_text: k.clone(),
+                                    context: None,
+                                });
+                            }
+                        }
+                        if search_values {
+                            match v {
+                                Value::String(s) => {
+                                    let check = if case_sensitive_flag { s.clone() } else { s.to_lowercase() };
+                                    let is_match = if let Some(re) = &re_opt { re.is_match(&check) } else if whole_word { check.split(|c: char| !c.is_alphanumeric()).any(|w| w == query_norm) } else { check.contains(&query_norm) };
+                                    if is_match {
+                                        batch.push(SearchResult { node: to_node_with_truncation(&pointer, Some(k), v, None), match_type: "value".into(), match_text: s.clone(), context: Some(format!("in key: {}", k)) });
+                                    }
+                                }
+                                Value::Number(n) => {
+                                    let num_str = n.to_string();
+                                    let check = if case_sensitive_flag { num_str.clone() } else { num_str.to_lowercase() };
+                                    let is_match = if let Some(re) = &re_opt { re.is_match(&check) } else if whole_word { check.split(|c: char| !c.is_alphanumeric()).any(|w| w == query_norm) } else { check.contains(&query_norm) };
+                                    if is_match { batch.push(SearchResult { node: to_node_with_truncation(&pointer, Some(k), v, None), match_type: "value".into(), match_text: num_str, context: Some(format!("in key: {}", k)) }); }
+                                }
+                                Value::Bool(b) => {
+                                    let bool_str = b.to_string();
+                                    let check = if case_sensitive_flag { bool_str.clone() } else { bool_str.to_lowercase() };
+                                    let is_match = if let Some(re) = &re_opt { re.is_match(&check) } else if whole_word { check.split(|c: char| !c.is_alphanumeric()).any(|w| w == query_norm) } else { check.contains(&query_norm) };
+                                    if is_match { batch.push(SearchResult { node: to_node_with_truncation(&pointer, Some(k), v, None), match_type: "value".into(), match_text: bool_str, context: Some(format!("in key: {}", k)) }); }
+                                }
+                                _ => {}
+                            }
+                        }
+                        if matches!(v, Value::Object(_) | Value::Array(_)) {
+                            let child_pointer = if pointer.is_empty() { format!("/{}", escape_pointer_token(k)) } else { format!("{}/{}", pointer, escape_pointer_token(k)) };
+                            stack.push((v, child_pointer));
+                        }
+                        if batch.len() >= batch_size {
+                            total_so_far += batch.len();
+                            let _ = handle_clone.emit("search_batch", serde_json::json!({ "id": id, "batch": batch, "total_so_far": total_so_far, "elapsed_ms": start_instant.elapsed().as_millis() }));
+                            batch = Vec::with_capacity(batch_size);
+                        }
+                    }
+                }
+                Value::Array(arr) => {
+                    for (idx, item) in arr.iter().enumerate() {
+                        if search_values {
+                            match item {
+                                Value::String(s) => {
+                                    let check = if case_sensitive_flag { s.clone() } else { s.to_lowercase() };
+                                    let is_match = if let Some(re) = &re_opt { re.is_match(&check) } else if whole_word { check.split(|c: char| !c.is_alphanumeric()).any(|w| w == query_norm) } else { check.contains(&query_norm) };
+                                    if is_match { batch.push(SearchResult { node: to_node_with_truncation(&pointer, Some(&idx.to_string()), item, None), match_type: "value".into(), match_text: s.clone(), context: Some(format!("in index: {}", idx)) }); }
+                                }
+                                Value::Number(n) => {
+                                    let num_str = n.to_string();
+                                    let check = if case_sensitive_flag { num_str.clone() } else { num_str.to_lowercase() };
+                                    let is_match = if let Some(re) = &re_opt { re.is_match(&check) } else if whole_word { check.split(|c: char| !c.is_alphanumeric()).any(|w| w == query_norm) } else { check.contains(&query_norm) };
+                                    if is_match { batch.push(SearchResult { node: to_node_with_truncation(&pointer, Some(&idx.to_string()), item, None), match_type: "value".into(), match_text: num_str, context: Some(format!("in index: {}", idx)) }); }
+                                }
+                                Value::Bool(b) => {
+                                    let bool_str = b.to_string();
+                                    let check = if case_sensitive_flag { bool_str.clone() } else { bool_str.to_lowercase() };
+                                    let is_match = if let Some(re) = &re_opt { re.is_match(&check) } else if whole_word { check.split(|c: char| !c.is_alphanumeric()).any(|w| w == query_norm) } else { check.contains(&query_norm) };
+                                    if is_match { batch.push(SearchResult { node: to_node_with_truncation(&pointer, Some(&idx.to_string()), item, None), match_type: "value".into(), match_text: bool_str, context: Some(format!("in index: {}", idx)) }); }
+                                }
+                                _ => {}
+                            }
+                        }
+                        if matches!(item, Value::Object(_) | Value::Array(_)) {
+                            let child_pointer = format!("{}/{}", pointer, idx);
+                            stack.push((item, child_pointer));
+                        }
+                        if batch.len() >= batch_size {
+                            total_so_far += batch.len();
+                            let _ = handle_clone.emit("search_batch", serde_json::json!({ "id": id, "batch": batch, "total_so_far": total_so_far, "elapsed_ms": start_instant.elapsed().as_millis() }));
+                            batch = Vec::with_capacity(batch_size);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !batch.is_empty() {
+            total_so_far += batch.len();
+            let _ = handle_clone.emit("search_batch", serde_json::json!({ "id": id, "batch": batch, "total_so_far": total_so_far, "elapsed_ms": start_instant.elapsed().as_millis() }));
+        }
+        let _ = handle_clone.emit("search_done", serde_json::json!({ "id": id, "total": total_so_far, "elapsed_ms": start_instant.elapsed().as_millis() }));
+    });
+
+    Ok(id)
+}
+
 fn text_matches(text: &str, query: &str, re: Option<&regex::Regex>, whole_word: bool) -> bool {
     if let Some(re) = re {
         // If regex is enabled, use regex matching
@@ -471,6 +620,7 @@ pub fn main() {
             open_file, 
             load_children, 
             search,
+            search_stream,
             cancel_parse,
             save_last_opened_file,
             load_last_opened_file,
