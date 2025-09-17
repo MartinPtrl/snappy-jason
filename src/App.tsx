@@ -34,11 +34,14 @@ function App() {
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchPage, setSearchPage] = useState(1); // highest loaded (1-based)
+  const [searchPageSize, setSearchPageSize] = useState(50); // batch size for infinite scroll
   // Track expanded preview state for search results (by node pointer)
   const [expandedSearchPreviews, setExpandedSearchPreviews] = useState<
     Record<string, boolean>
   >({});
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchAppending, setSearchAppending] = useState(false); // true when loading additional pages
   const [searchError, setSearchError] = useState<string>("");
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [searchOptions, setSearchOptions] = useState<SearchOptions>({
@@ -51,12 +54,13 @@ function App() {
   });
   const [searchStats, setSearchStats] = useState({
     totalCount: 0,
-    hasMore: false, // For streaming: true while streaming (until done event)
+    hasMore: false,
   });
   const [showSearchTargetNotification, setShowSearchTargetNotification] =
     useState(false);
 
   const searchTimeoutRef = useRef<number | null>(null);
+  const searchLoadMoreRef = useRef<HTMLDivElement>(null);
 
   // Tree operations
   const { handleExpandAll, handleCollapseAll, expandedNodes } =
@@ -147,19 +151,15 @@ function App() {
 
   // Re-run search when options change
   useEffect(() => {
-    // Clear search target notification when search options change
     setShowSearchTargetNotification(false);
-
     if (isSearchMode && searchQuery.trim()) {
-      // Debounce search to avoid rapid-fire requests
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
       searchTimeoutRef.current = setTimeout(() => {
-        performSearch(searchQuery);
+        performSearch(searchQuery, 1, searchPageSize, { append: false });
+        setSearchPage(1);
       }, 300);
     }
-  }, [searchOptions]);
+  }, [searchOptions, searchPageSize]);
 
   const handleFileLoad = useCallback(async (path: string) => {
     // Clear search when loading new file
@@ -201,11 +201,11 @@ function App() {
 
         unlisten = await listen<{ paths: string[] }>(
           "tauri://drag-drop",
-          (event) => {
+          (event: { payload: { paths: string[] } }) => {
             console.log("✅ TAURI DRAG DROP EVENT:", event.payload);
             const filePaths = event.payload.paths;
             if (filePaths.length > 0) {
-              const jsonFile = filePaths.find((path) =>
+              const jsonFile = filePaths.find((path: string) =>
                 path.toLowerCase().endsWith(".json")
               );
               if (jsonFile) {
@@ -293,57 +293,47 @@ function App() {
     }
   };
 
-  // Streaming search implementation
   const currentSearchIdRef = useRef<number>(0);
-  const unlistenBatchRef = useRef<(() => void) | null>(null);
-  const unlistenDoneRef = useRef<(() => void) | null>(null);
-
-  const cleanupSearchListeners = () => {
-    if (unlistenBatchRef.current) {
-      unlistenBatchRef.current();
-      unlistenBatchRef.current = null;
-    }
-    if (unlistenDoneRef.current) {
-      unlistenDoneRef.current();
-      unlistenDoneRef.current = null;
-    }
-  };
-
-  const performSearch = async (query: string) => {
+  const performSearch = async (
+    query: string,
+    page: number,
+    pageSize: number,
+    { append }: { append: boolean }
+  ) => {
     if (!query.trim()) {
-      cleanupSearchListeners();
       setSearchResults([]);
       setSearchStats({ totalCount: 0, hasMore: false });
       setIsSearchMode(false);
       setShowSearchTargetNotification(false);
       return;
     }
-
     if (
       !searchOptions.searchKeys &&
       !searchOptions.searchValues &&
       !searchOptions.searchPaths
     ) {
-      cleanupSearchListeners();
       setShowSearchTargetNotification(true);
       setTimeout(() => setShowSearchTargetNotification(false), 3000);
       return;
     }
-
-    // New search: bump id and cleanup old listeners
-    cleanupSearchListeners();
     const newId = currentSearchIdRef.current + 1;
     currentSearchIdRef.current = newId;
-    setSearchResults([]);
-    setSearchStats({ totalCount: 0, hasMore: true });
-    setSearchLoading(true);
+    if (append) {
+      setSearchAppending(true);
+    } else {
+      setSearchLoading(true);
+    }
     setSearchError("");
     setIsSearchMode(true);
     setShowSearchTargetNotification(false);
-
     try {
-      // Start streaming search
-      const startedId = await invoke<number>("search_stream", {
+      const offset = (page - 1) * pageSize;
+      const limit = pageSize;
+      const resp = await invoke<{
+        results: SearchResult[];
+        total_count: number;
+        has_more: boolean;
+      }>("search", {
         query: query.trim(),
         searchKeys: searchOptions.searchKeys,
         searchValues: searchOptions.searchValues,
@@ -351,48 +341,26 @@ function App() {
         caseSensitive: searchOptions.caseSensitive,
         regex: searchOptions.regex,
         wholeWord: searchOptions.wholeWord,
+        offset,
+        limit,
       });
-
-      if (startedId !== newId) {
-        // Another search started even before invoke returned; ignore
-        return;
-      }
-
-      // Listen for batches
-      unlistenBatchRef.current = await listen<any>("search_batch", (event) => {
-        const payload: any = event.payload;
-        if (!payload || typeof payload !== "object") return;
-        if (payload.id !== currentSearchIdRef.current) return; // stale
-        const batch: SearchResult[] = payload.batch || [];
-        if (batch.length) {
-          setSearchResults((prev) => [...prev, ...batch]);
-          setSearchStats((prev) => ({
-            ...prev,
-            totalCount: payload.total_so_far ?? prev.totalCount,
-            hasMore: true, // still streaming
-          }));
-        }
-      });
-
-      // Listen for completion
-      unlistenDoneRef.current = await listen<any>("search_done", (event) => {
-        const payload: any = event.payload;
-        if (!payload || typeof payload !== "object") return;
-        if (payload.id !== currentSearchIdRef.current) return; // stale
-        setSearchStats((prev) => ({
-          ...prev,
-          totalCount: payload.total ?? prev.totalCount,
-          hasMore: false,
-        }));
-        setSearchLoading(false);
-        cleanupSearchListeners();
-      });
+      if (currentSearchIdRef.current !== newId) return;
+      setSearchResults((prev) =>
+        append ? [...prev, ...resp.results] : resp.results
+      );
+      setSearchStats({ totalCount: resp.total_count, hasMore: resp.has_more });
     } catch (error) {
-      // Handle start failures
+      if (currentSearchIdRef.current !== newId) return;
+      setSearchError(`Search failed: ${error}`);
+      setSearchResults([]);
+      setSearchStats({ totalCount: 0, hasMore: false });
+    } finally {
       if (currentSearchIdRef.current === newId) {
-        setSearchLoading(false);
-        setSearchError(`Search failed: ${error}`);
-        setSearchStats({ totalCount: 0, hasMore: false });
+        if (append) {
+          setSearchAppending(false);
+        } else {
+          setSearchLoading(false);
+        }
       }
     }
   };
@@ -406,7 +374,8 @@ function App() {
     }
 
     searchTimeoutRef.current = setTimeout(() => {
-      performSearch(query);
+      performSearch(query, 1, searchPageSize, { append: false });
+      setSearchPage(1);
     }, 300);
   };
 
@@ -417,6 +386,7 @@ function App() {
     setIsSearchMode(false);
     setSearchQuery("");
     setSearchResults([]);
+    setSearchPage(1);
     setSearchError("");
 
     // Clear main level pagination state
@@ -425,6 +395,42 @@ function App() {
 
     unloadFile();
   }, [unloadFile]);
+
+  // Infinite scroll for search results
+  useEffect(() => {
+    if (!isSearchMode) return;
+    if (!searchStats.hasMore) return;
+    if (searchLoading || searchAppending) return;
+    const el = searchLoadMoreRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting) {
+          // Load next page
+          const nextPage = searchPage + 1;
+          setSearchPage(nextPage);
+          performSearch(searchQuery, nextPage, searchPageSize, {
+            append: true,
+          });
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [
+    isSearchMode,
+    searchStats.hasMore,
+    searchLoading,
+    searchAppending,
+    searchPage,
+    searchQuery,
+    searchPageSize,
+  ]);
 
   return (
     <div className="app">
@@ -563,7 +569,7 @@ function App() {
             </div>
 
             {searchLoading && (
-              <div className="search-loading">🔍 Streaming results...</div>
+              <div className="search-loading">🔍 Searching...</div>
             )}
 
             {showSearchTargetNotification && (
@@ -580,15 +586,12 @@ function App() {
             {isSearchMode && (
               <div className="search-stats">
                 {searchLoading ? (
-                  <>
-                    Found {searchStats.totalCount} matches so far (in{" "}
-                    {searchResults.length} distinct nodes)
-                  </>
+                  <>Searching…</>
                 ) : (
                   <>
-                    Found {searchStats.totalCount} matches in{" "}
-                    {searchResults.length} distinct{" "}
-                    {searchResults.length === 1 ? "node" : "nodes"}
+                    Found {searchStats.totalCount} matches · Showing{" "}
+                    {searchResults.length} of {searchStats.totalCount}
+                    {searchAppending && " (loading more...)"}
                   </>
                 )}
               </div>
@@ -645,6 +648,48 @@ function App() {
 
         {isSearchMode && searchResults.length > 0 && (
           <div className="search-results">
+            <div
+              className="search-pagination-controls"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.75rem",
+                padding: "0.5rem 0 0.75rem 0",
+              }}
+            >
+              <label
+                style={{
+                  marginLeft: "0",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.25rem",
+                  fontSize: "0.75rem",
+                }}
+              >
+                Batch size:
+                <select
+                  value={searchPageSize}
+                  onChange={(e) => {
+                    const newSize = parseInt(e.target.value, 10) || 50;
+                    setSearchPageSize(newSize);
+                    setSearchPage(1);
+                    performSearch(searchQuery, 1, newSize, { append: false });
+                  }}
+                  style={{ padding: "2px 4px" }}
+                >
+                  {[25, 50, 100, 250].map((sz) => (
+                    <option key={sz} value={sz}>
+                      {sz}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {searchAppending && (
+                <span style={{ fontSize: "0.7rem", opacity: 0.6 }}>
+                  Loading more…
+                </span>
+              )}
+            </div>
             <div className="search-results-list">
               {searchResults.map((result, index) => (
                 <div
@@ -715,6 +760,24 @@ function App() {
                   </div>
                 </div>
               ))}
+              {searchStats.hasMore && (
+                <div
+                  ref={searchLoadMoreRef}
+                  className="infinite-scroll-trigger"
+                  style={{
+                    height: "24px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "12px",
+                    opacity: 0.6,
+                  }}
+                >
+                  {searchAppending
+                    ? "Loading more results…"
+                    : "Scroll to load more"}
+                </div>
+              )}
             </div>
           </div>
         )}
