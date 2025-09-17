@@ -6,9 +6,35 @@ on:
   workflow_dispatch:
 
 jobs:
+  create-release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    outputs:
+      release-id: ${{ steps.create-release.outputs.result }}
+      
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release
+        id: create-release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: context.ref.replace('refs/tags/', ''),
+              name: `App ${context.ref.replace('refs/tags/', '')}`,
+              body: 'See the assets to download this version and install.',
+              draft: false,
+              prerelease: false
+            })
+            return data.id
+
   release:
     permissions:
       contents: write
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:
@@ -56,12 +82,13 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: app-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version.
-          releaseName: "App v__VERSION__"
-          releaseBody: "See the assets to download this version and install."
-          releaseDraft: false
-          prerelease: false
+          releaseId: ${{ needs.create-release.outputs.release-id }}
           args: ${{ matrix.args }}
-          updaterJsonPreferNsis: true
           includeUpdaterJson: true
-          packageManager: npm
+          updaterJsonPreferNsis: true
+          
+      - name: Debug - List release assets
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          echo "Checking if latest.json was created..."
+          curl -s "https://api.github.com/repos/MartinPtrl/snappy-jason/releases/latest" | grep -o '"browser_download_url":[^,]*' || echo "No assets found"
