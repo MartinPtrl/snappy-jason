@@ -6,10 +6,11 @@ import type {
   SearchResult,
   SearchResponse,
   SearchOptions,
-} from "@shared/types";
-import { useFileOperations } from "@features/file";
-import { Tree, useTreeOperations } from "@features/tree";
+} from "@/shared/types";
+import { useFileOperations } from "@/features/file";
+import { Tree, useTreeOperations } from "@/features/tree";
 import { CopyIcon, ProgressBar, ToggleThemeButton } from "@shared";
+import { Updater } from "@/shared/Updater";
 import "./App.css";
 
 function App() {
@@ -394,6 +395,7 @@ function App() {
         <header className="app-header">
           <h1>Snappy JSON Viewer</h1>
           <div className="header-controls">
+            <Updater checkOnStartup={true} />
             <ToggleThemeButton />
             <div className="file-input-container">
               {(fileName || nodes.length > 0) && (

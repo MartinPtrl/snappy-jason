@@ -22,6 +22,14 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/MartinPtrl/snappy-jason/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJEMzI4RDM3QTQxODU2OEQKUldTTlZoaWtONDB5TFF3ZkdDUkxIOUZCU3cvSi85YkZZOUFoWU5KZUgxSUFZOTFvOUpPbFl3WUMK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
@@ -36,7 +44,7 @@
     "category": "Productivity",
     "shortDescription": "A fast JSON viewer and editor",
     "longDescription": "Snappy Jason is a desktop application for viewing and editing JSON files with a clean, intuitive interface.",
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "copyright": "Copyright © 2025 martinsmsmachine",
     "licenseFile": "../LICENSE",
     "macOS": {
