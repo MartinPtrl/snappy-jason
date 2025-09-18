@@ -6,6 +6,7 @@ import { CopyIcon, ExpandIcon, highlightText } from "@shared";
 interface TreeProps {
   node: Node;
   level: number;
+  fileId?: string; // File ID for multi-file support
   searchQuery?: string;
   searchOptions?: SearchOptions;
   // Optional external control for showing full preview (used in search results header button)
@@ -17,6 +18,7 @@ interface TreeProps {
 export function Tree({
   node,
   level,
+  fileId,
   searchQuery,
   searchOptions,
   externalShowFull,
@@ -46,12 +48,13 @@ export function Tree({
       try {
         const limit = 100; // Load 100 items at a time
 
-        // Backend expansion
-        const result = await invoke<Node[]>("load_children", {
-          pointer,
-          offset,
-          limit,
-        });
+        // Use multi-file command if fileId is provided, otherwise fall back to legacy
+        const command = fileId ? "load_children_multi" : "load_children";
+        const params = fileId 
+          ? { fileId, pointer, offset, limit }
+          : { pointer, offset, limit };
+
+        const result = await invoke<Node[]>(command, params);
 
         if (append) {
           setChildren((prev) => [...prev, ...result]);
@@ -92,11 +95,12 @@ export function Tree({
           await new Promise((resolve) => setTimeout(resolve, 100));
 
           // Load children of the current node
-          const children = await invoke<Node[]>("load_children", {
-            pointer: currentPointer,
-            offset: 0,
-            limit: 10000,
-          });
+          const command = fileId ? "load_children_multi" : "load_children";
+          const params = fileId 
+            ? { fileId, pointer: currentPointer, offset: 0, limit: 10000 }
+            : { pointer: currentPointer, offset: 0, limit: 10000 };
+
+          const children = await invoke<Node[]>(command, params);
 
           // Find all expandable children and add them to the queue
           const expandableChildren = children.filter(
@@ -152,11 +156,12 @@ export function Tree({
             }
 
             // Load children and add expandable ones to queue
-            const childNodes = await invoke<Node[]>("load_children", {
-              pointer: currentPointer,
-              offset: 0,
-              limit: 10000,
-            });
+            const command = fileId ? "load_children_multi" : "load_children";
+            const params = fileId 
+              ? { fileId, pointer: currentPointer, offset: 0, limit: 10000 }
+              : { pointer: currentPointer, offset: 0, limit: 10000 };
+
+            const childNodes = await invoke<Node[]>(command, params);
 
             for (const child of childNodes) {
               if (
@@ -407,6 +412,7 @@ export function Tree({
               key={`${child.pointer}-${index}`}
               node={child}
               level={level + 1}
+              fileId={fileId}
               searchQuery={searchQuery}
               searchOptions={searchOptions}
             />

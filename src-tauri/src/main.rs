@@ -30,7 +30,7 @@ fn to_node_with_truncation(parent_ptr: &str, key: Option<&str>, v: &Value, trunc
     Node { pointer, key: key.map(|s| s.to_string()), value_type, has_children, child_count, preview }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct Node {
     pointer: String,          // JSON Pointer to this node
     key: Option<String>,      // key if object, index if array (as string)
@@ -40,7 +40,7 @@ struct Node {
     preview: String,          // short preview for leafs / strings / numbers
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct SearchResult {
     node: Node,
     match_type: String,       // "key", "value", "path"
@@ -51,6 +51,20 @@ struct SearchResult {
 #[derive(Serialize)]
 struct SearchResponse {
     results: Vec<SearchResult>,
+    total_count: usize,
+    has_more: bool,
+}
+
+#[derive(Serialize)]
+struct MultiFileSearchResult {
+    file_id: String,
+    results: Vec<SearchResult>,
+    total_count: usize,
+}
+
+#[derive(Serialize)]
+struct MultiFileSearchResponse {
+    files: Vec<MultiFileSearchResult>,
     total_count: usize,
     has_more: bool,
 }
@@ -612,6 +626,246 @@ fn get_node_value(pointer: String, state: tauri::State<'_, AppState>) -> Result<
     serde_json::to_string(value).map_err(|e| e.to_string())
 }
 
+// Multi-file support commands
+#[tauri::command]
+async fn open_file_multi(path: String, file_id: String, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Vec<Node>, String> {
+    let path_clone = path.clone();
+    let handle_clone = app_handle.clone();
+    let file_id_clone = file_id.clone();
+    // obtain a cancellation flag clone to share with background thread
+    let cancel_flag = state.cancel_parse.clone();
+    // reset cancel flag at the beginning of a new parse
+    cancel_flag.store(false, std::sync::atomic::Ordering::SeqCst);
+    let root: Value = spawn_blocking(move || {
+        let f = File::open(&path_clone).map_err(|e| e.to_string())?;
+        let metadata = f.metadata().ok();
+        let total_bytes = metadata.map(|m| m.len()).unwrap_or(0);
+
+        struct ProgressReader<R: Read> {
+            inner: R,
+            read_bytes: u64,
+            total_bytes: u64,
+            last_emit: u64,
+            app_handle: tauri::AppHandle,
+            path: String,
+            file_id: String,
+            cancel: Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl<R: Read> Read for ProgressReader<R> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                // if canceled, stop reading
+                if self.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Ok(0);
+                }
+                let n = self.inner.read(buf)?;
+                self.read_bytes += n as u64;
+                if self.read_bytes - self.last_emit >= 1024 * 1024 || n == 0 {
+                    let percent = if self.total_bytes > 0 { self.read_bytes as f64 / self.total_bytes as f64 * 100.0 } else { 0.0 };
+                    let _ = self.app_handle.emit("parse_progress", serde_json::json!({
+                        "path": self.path,
+                        "fileId": self.file_id,
+                        "readBytes": self.read_bytes,
+                        "totalBytes": self.total_bytes,
+                        "percent": percent,
+                        "done": n == 0,
+                        "canceled": self.cancel.load(std::sync::atomic::Ordering::SeqCst),
+                    }));
+                    self.last_emit = self.read_bytes;
+                }
+                Ok(n)
+            }
+        }
+
+        let progress_reader = ProgressReader {
+            inner: f,
+            read_bytes: 0,
+            total_bytes,
+            last_emit: 0,
+            app_handle: handle_clone,
+            path: path_clone,
+            file_id: file_id_clone,
+            cancel: cancel_flag,
+        };
+        let reader = BufReader::new(progress_reader);
+        serde_json::from_reader(reader).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Join error: {e}"))??;
+
+    let arc = Arc::new(root);
+    let top = list_children(&arc, "", 0, 100);
+    
+    // Store in multi-file map
+    state.docs.write().insert(file_id.clone(), arc.clone());
+    
+    // Also update legacy single doc for backward compatibility
+    *state.doc.write() = Some(arc);
+    
+    Ok(top)
+}
+
+#[tauri::command]
+fn load_children_multi(file_id: String, pointer: String, offset: usize, limit: usize, state: tauri::State<'_, AppState>) -> Result<Vec<Node>, String> {
+    let guard = state.docs.read();
+    let Some(root) = guard.get(&file_id) else { return Err("No document loaded for this file".into()); };
+    Ok(list_children(root, &pointer, offset, limit))
+}
+
+#[tauri::command]
+fn get_node_value_multi(file_id: String, pointer: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let guard = state.docs.read();
+    let Some(root) = guard.get(&file_id) else { return Err("No document loaded for this file".into()); };
+    
+    let value = if pointer.is_empty() {
+        root.as_ref()
+    } else {
+        root.pointer(&pointer).ok_or("Invalid pointer")?
+    };
+    
+    serde_json::to_string(value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_file_multi(file_id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.docs.write().remove(&file_id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn search_multi(
+    query: String,
+    search_keys: bool,
+    search_values: bool,
+    search_paths: bool,
+    case_sensitive: bool,
+    regex: bool,
+    whole_word: bool,
+    offset: usize,
+    limit: usize,
+    state: tauri::State<'_, AppState>
+) -> Result<MultiFileSearchResponse, String> {
+    // Get all loaded documents
+    let docs_map = {
+        let guard = state.docs.read();
+        guard.clone()
+    };
+
+    if docs_map.is_empty() {
+        return Err("No documents loaded".into());
+    }
+
+    if query.trim().is_empty() {
+        return Ok(MultiFileSearchResponse { 
+            files: vec![], 
+            total_count: 0, 
+            has_more: false 
+        });
+    }
+
+    let search_query_owned = if case_sensitive { query.clone() } else { query.to_lowercase() };
+    let regex_enable = regex;
+    let whole_word_flag = whole_word;
+    let case_sensitive_flag = case_sensitive;
+    let search_keys_flag = search_keys;
+    let search_values_flag = search_values;
+    let search_paths_flag = search_paths;
+    let query_clone_for_regex = query.clone();
+
+    // Search across all files
+    let mut all_file_results = Vec::new();
+    let mut total_results = 0;
+
+    for (file_id, doc_arc) in docs_map.iter() {
+        let file_id_clone = file_id.clone();
+        let doc_clone = doc_arc.clone();
+        let search_query_clone = search_query_owned.clone();
+        let query_regex_clone = query_clone_for_regex.clone();
+
+        // Offload CPU intensive traversal for each file
+        let (file_results, file_count) = spawn_blocking(move || {
+            let re = if regex_enable { regex::Regex::new(&query_regex_clone).ok() } else { None };
+            let mut collected = Vec::new();
+            search_recursive(
+                &doc_clone,
+                "",
+                &search_query_clone,
+                re.as_ref(),
+                search_keys_flag,
+                search_values_flag,
+                search_paths_flag,
+                case_sensitive_flag,
+                whole_word_flag,
+                &mut collected,
+            );
+            let count = collected.len();
+            (collected, count)
+        })
+        .await
+        .map_err(|e| format!("Join error: {e}"))?;
+
+        if !file_results.is_empty() {
+            all_file_results.push(MultiFileSearchResult {
+                file_id: file_id_clone,
+                results: file_results,
+                total_count: file_count,
+            });
+            total_results += file_count;
+        }
+    }
+
+    // Apply pagination across all results
+    let mut flat_results = Vec::new();
+    for file_result in &all_file_results {
+        for result in &file_result.results {
+            flat_results.push((file_result.file_id.clone(), result));
+        }
+    }
+
+    let paginated_results: Vec<_> = flat_results
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .collect();
+
+    // Rebuild file structure for paginated results
+    let mut final_files = Vec::new();
+    let mut current_file_id = String::new();
+    let mut current_results = Vec::new();
+
+    for (file_id, result) in paginated_results {
+        if file_id != current_file_id {
+            if !current_results.is_empty() {
+                let count = current_results.len();
+                final_files.push(MultiFileSearchResult {
+                    file_id: current_file_id.clone(),
+                    results: current_results,
+                    total_count: count,
+                });
+                current_results = Vec::new();
+            }
+            current_file_id = file_id;
+        }
+        current_results.push(result.clone());
+    }
+
+    if !current_results.is_empty() {
+        let count = current_results.len();
+        final_files.push(MultiFileSearchResult {
+            file_id: current_file_id,
+            results: current_results,
+            total_count: count,
+        });
+    }
+
+    let has_more = offset + limit < total_results;
+
+    Ok(MultiFileSearchResponse { 
+        files: final_files, 
+        total_count: total_results, 
+        has_more 
+    })
+}
+
 pub fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -621,11 +875,16 @@ pub fn main() {
             load_children, 
             search,
             search_stream,
+            search_multi,
             cancel_parse,
             save_last_opened_file,
             load_last_opened_file,
             clear_last_opened_file,
-            get_node_value
+            get_node_value,
+            open_file_multi,
+            load_children_multi,
+            get_node_value_multi,
+            remove_file_multi
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
