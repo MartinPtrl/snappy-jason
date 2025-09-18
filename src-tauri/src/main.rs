@@ -744,9 +744,34 @@ fn set_subtree(pointer: String, new_json: String, state: tauri::State<'_, AppSta
     build_node_for_pointer(root_mut, &pointer)
 }
 
+#[tauri::command]
+async fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    use tokio::sync::oneshot;
+    
+    let (tx, rx) = oneshot::channel();
+    
+    // Use the app's dialog interface
+    app.dialog()
+        .file()
+        .add_filter("JSON files", &["json"])
+        .set_title("Open JSON File")
+        .pick_file(move |file_path| {
+            let result = file_path.map(|p| p.to_string());
+            let _ = tx.send(result);
+        });
+    
+    // Wait for the dialog result
+    match rx.await {
+        Ok(result) => Ok(result),
+        Err(_) => Err("Dialog was cancelled or failed".to_string()),
+    }
+}
+
 pub fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             open_file, 
@@ -758,11 +783,12 @@ pub fn main() {
             load_last_opened_file,
             clear_last_opened_file,
             get_node_value,
-            set_node_value
-            ,set_subtree
-            ,copy_node_value
-            ,parse_stringified_json
-            ,open_clipboard
+            copy_node_value,
+            parse_stringified_json,
+            open_clipboard,
+            set_node_value,
+            set_subtree,
+            open_file_dialog
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
