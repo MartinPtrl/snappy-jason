@@ -122,6 +122,41 @@ export const useFileOperations = () => {
     []
   );
 
+  // Load JSON from clipboard (Rust side parses clipboard content)
+  const loadClipboard = useCallback(
+    async (options?: {
+      onSuccess?: (nodes: Node[]) => void;
+      onError?: (error: string) => void;
+    }) => {
+      setLoading(true);
+      setParseProgress(0);
+      setError("");
+      setFileName("[Clipboard]");
+      // Invalidate any file parsing request
+      latestRequestIdRef.current++;
+      try {
+        const result = await invoke<Node[]>("open_clipboard");
+        setNodes(result);
+        setFileName("[Clipboard]");
+        // When loading from clipboard we clear persisted last opened file path
+        await clearLastOpenedFile();
+        options?.onSuccess?.(result);
+      } catch (error) {
+        console.error("Failed to load clipboard JSON:", error);
+        const msg = `Failed to load clipboard JSON: ${error}`;
+        setError(msg);
+        setNodes([]);
+        setFileName("");
+        options?.onError?.(msg);
+      } finally {
+        // Show instant completion
+        setParseProgress(100);
+        setTimeout(() => setLoading(false), 50);
+      }
+    },
+    []
+  );
+
   const loadLastOpenedFile = useCallback(
     async (options?: {
       onSuccess?: (nodes: Node[]) => void;
@@ -213,6 +248,7 @@ export const useFileOperations = () => {
 
     // Actions
     loadFile,
+    loadClipboard,
     loadLastOpenedFile,
     unloadFile,
     cancelLoad,

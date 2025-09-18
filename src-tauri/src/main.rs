@@ -127,6 +127,23 @@ async fn open_file(path: String, state: tauri::State<'_, AppState>, app_handle: 
     Ok(top)
 }
 
+// Load JSON from the system clipboard (expects UTF-8 text containing a JSON value).
+// Replaces the currently loaded document (if any) after confirmation on the frontend.
+// Returns the top-level nodes (first page) similar to open_file.
+#[tauri::command]
+fn open_clipboard(state: tauri::State<'_, AppState>) -> Result<Vec<Node>, String> {
+    use arboard::Clipboard;
+    let mut cb = Clipboard::new().map_err(|e| format!("Clipboard init failed: {e}"))?;
+    let text = cb.get_text().map_err(|e| format!("Failed reading clipboard text: {e}"))?;
+    // Parse JSON
+    let root: Value = serde_json::from_str(&text)
+        .map_err(|e| format!("Clipboard does not contain valid JSON: {e}"))?;
+    let arc = Arc::new(root);
+    let top = list_children(&arc, "", 0, 100);
+    *state.doc.write() = Some(arc);
+    Ok(top)
+}
+
 #[tauri::command]
 fn cancel_parse(state: tauri::State<'_, AppState>) -> Result<(), String> {
     state.cancel_parse.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -745,6 +762,7 @@ pub fn main() {
             ,set_subtree
             ,copy_node_value
             ,parse_stringified_json
+            ,open_clipboard
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

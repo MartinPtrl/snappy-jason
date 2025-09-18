@@ -16,6 +16,7 @@ function App() {
     error,
     nodes,
     loadFile,
+    loadClipboard,
     loadLastOpenedFile,
     unloadFile,
     loadMoreNodes,
@@ -35,12 +36,11 @@ function App() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchPage, setSearchPage] = useState(1); // highest loaded (1-based)
-  // Track expanded preview state for search results (by node pointer)
   const [expandedSearchPreviews, setExpandedSearchPreviews] = useState<
     Record<string, boolean>
   >({});
   const [searchLoading, setSearchLoading] = useState(false);
-  const [searchAppending, setSearchAppending] = useState(false); // true when loading additional pages
+  const [searchAppending, setSearchAppending] = useState(false);
   const [searchError, setSearchError] = useState<string>("");
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [searchOptions, setSearchOptions] = useState<SearchOptions>({
@@ -57,13 +57,31 @@ function App() {
   });
   const [showSearchTargetNotification, setShowSearchTargetNotification] =
     useState(false);
-
   const searchTimeoutRef = useRef<number | null>(null);
   const searchLoadMoreRef = useRef<HTMLDivElement>(null);
 
   // Tree operations
   const { handleExpandAll, handleCollapseAll, expandedNodes } =
     useTreeOperations();
+
+  // Clipboard modal & toast state (already declared earlier in code; ensure not duplicated)
+  const [showPasteConfirm, setShowPasteConfirm] = useState(false);
+  const pastePendingRef = useRef(false);
+  const [toastMessage, setToastMessage] = useState<string>("");
+  const toastTimeoutRef = useRef<number | null>(null);
+  // Modal focus management
+  const modalRef = useRef<HTMLDivElement | null>(null);
+  const firstFocusableRef = useRef<HTMLButtonElement | null>(null);
+  const lastFocusableRef = useRef<HTMLButtonElement | null>(null);
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+  const showToast = useCallback((msg: string, duration = 2600) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToastMessage(msg);
+    toastTimeoutRef.current = window.setTimeout(() => {
+      setToastMessage("");
+      toastTimeoutRef.current = null;
+    }, duration);
+  }, []);
 
   // Helper function to collect expandable node pointers from current level
   const collectExpandablePointers = (nodeArray: any[]): string[] => {
@@ -430,8 +448,152 @@ function App() {
     searchQuery,
   ]);
 
+  // Global paste (Ctrl/Cmd+V) to load JSON from clipboard via Rust backend (top-level effect)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      console.log("Keydown event:");
+      console.log({ key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey });
+      const isPaste = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v";
+      if (!isPaste) return;
+      // Ignore if focused element is an editable field
+      const active = document.activeElement as HTMLElement | null;
+      if (active) {
+        const tag = active.tagName.toLowerCase();
+        if (
+          tag === "input" ||
+          tag === "textarea" ||
+          (active as any).isContentEditable
+        )
+          return;
+      }
+      e.preventDefault();
+      if (loading || pastePendingRef.current) return;
+      const hasExisting = nodes.length > 0;
+      if (!hasExisting) {
+        pastePendingRef.current = true;
+        loadClipboard({
+          onSuccess: () => showToast("Loaded JSON from clipboard"),
+          onError: () => showToast("Clipboard JSON failed", 3000),
+        }).finally(() => {
+          pastePendingRef.current = false;
+        });
+        return;
+      }
+      // Show custom confirm modal
+      pastePendingRef.current = true;
+      setShowPasteConfirm(true);
+    };
+    window.addEventListener("keydown", handler, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", handler, { capture: true } as any);
+  }, [nodes.length, loadClipboard, loading, showToast]);
+
+  // Modal accessibility: ESC close, focus trap, initial focus, and restore focus
+  useEffect(() => {
+    if (!showPasteConfirm) return;
+
+    previouslyFocusedElementRef.current =
+      document.activeElement as HTMLElement | null;
+
+    // Wait for modal to mount, then focus the first button (Cancel)
+    requestAnimationFrame(() => {
+      firstFocusableRef.current?.focus();
+    });
+
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowPasteConfirm(false);
+        pastePendingRef.current = false;
+        return;
+      }
+      if (e.key === "Tab") {
+        if (!modalRef.current) return;
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            (last as HTMLElement).focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            (first as HTMLElement).focus();
+          }
+        }
+      }
+    };
+    window.addEventListener("keydown", keyHandler, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", keyHandler, {
+        capture: true,
+      } as any);
+      // Restore focus to previously focused trigger element
+      previouslyFocusedElementRef.current?.focus();
+    };
+  }, [showPasteConfirm]);
+
   return (
     <div className="app">
+      {showPasteConfirm && (
+        <div className="modal-overlay" role="presentation">
+          <div
+            className="modal-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="paste-confirm-title"
+            aria-describedby="paste-confirm-desc"
+            ref={modalRef}
+          >
+            <h3 className="modal-title" id="paste-confirm-title">
+              Replace current JSON?
+            </h3>
+            <p className="modal-body" id="paste-confirm-desc">
+              Loading from the clipboard will discard the currently viewed JSON
+              tree.
+            </p>
+            <div className="modal-actions">
+              <button
+                ref={firstFocusableRef}
+                className="btn"
+                onClick={() => {
+                  setShowPasteConfirm(false);
+                  pastePendingRef.current = false;
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                ref={lastFocusableRef}
+                className="btn btn-danger"
+                onClick={() => {
+                  setShowPasteConfirm(false);
+                  loadClipboard({
+                    onSuccess: () => showToast("Loaded JSON from clipboard"),
+                    onError: () => showToast("Clipboard JSON failed", 3000),
+                  }).finally(() => {
+                    pastePendingRef.current = false;
+                  });
+                }}
+              >
+                Replace
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {toastMessage && (
+        <div className="toast-container">
+          <div className="toast" role="status" aria-live="polite">
+            {toastMessage}
+          </div>
+        </div>
+      )}
       <div className="sticky-header">
         <header className="app-header">
           <h1>Snappy JSON Viewer</h1>
