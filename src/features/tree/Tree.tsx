@@ -32,79 +32,74 @@ export function Tree({
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState<string>("");
   const [editError, setEditError] = useState<string>("");
-  const inputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
-
-  // Initialize edit value when entering edit mode
-  useEffect(() => {
-    if (isEditing) {
-      setEditValue(node.preview.replace(/…$/, ""));
-      setTimeout(() => {
-        // For boolean radios, focus container rather than individual input for cleaner UX
-        if (node.value_type === "boolean") {
-          inputRef.current?.focus?.();
-        } else if (inputRef.current instanceof HTMLInputElement) {
-          inputRef.current.focus();
-          inputRef.current.select();
-        }
-      }, 0);
-    }
-  }, [isEditing, node.preview, node.value_type]);
+  const inputRef = useRef<
+    HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null
+  >(null);
 
   const isScalarEditable =
     node.value_type === "string" ||
     node.value_type === "number" ||
     node.value_type === "boolean";
+  const isContainer =
+    node.value_type === "object" || node.value_type === "array";
+
+  useEffect(() => {
+    if (!isEditing) return;
+    if (isContainer) {
+      setTimeout(() => {
+        if (inputRef.current instanceof HTMLTextAreaElement) {
+          inputRef.current.focus();
+        }
+      }, 0);
+      return;
+    }
+    setEditValue(node.preview.replace(/…$/, ""));
+    setTimeout(() => {
+      if (node.value_type === "boolean") {
+        inputRef.current?.focus?.();
+      } else if (inputRef.current instanceof HTMLInputElement) {
+        inputRef.current.focus();
+      }
+    }, 0);
+  }, [isEditing, node.preview, node.value_type, isContainer]);
 
   const beginEdit = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isScalarEditable) return;
-      e.stopPropagation();
-      setIsEditing(true);
+    async (e: React.MouseEvent) => {
+      // Scalars: edit inline
+      if (isScalarEditable) {
+        e.stopPropagation();
+        setIsEditing(true);
+        return;
+      }
+      // Containers: fetch full JSON and open textarea
+      if (isContainer) {
+        e.stopPropagation();
+        try {
+          const raw = await invoke<string>("get_node_value", {
+            pointer: node.pointer,
+          });
+          // Pretty-print for objects/arrays
+          let pretty = raw;
+          try {
+            pretty = JSON.stringify(JSON.parse(raw), null, 2);
+          } catch (_) {}
+          setEditValue(pretty);
+          setIsEditing(true);
+        } catch (err) {
+          console.error("Failed to load subtree", err);
+        }
+      }
     },
-    [isScalarEditable]
+    [isScalarEditable, isContainer, node.pointer]
   );
 
   const cancelEdit = useCallback(() => {
     setIsEditing(false);
   }, []);
 
-  const saveEdit = useCallback(async () => {
-    if (!isScalarEditable) return;
-    let valueToSend = editValue;
-    if (node.value_type === "boolean") {
-      const lower = valueToSend.trim().toLowerCase();
-      if (lower !== "true" && lower !== "false") {
-        setEditError("Enter true or false");
-        return;
-      }
-      valueToSend = lower; // normalized
-    }
-    try {
-      const updated = await invoke<Node>("set_node_value", {
-        pointer: node.pointer,
-        newValue: valueToSend,
-      });
-      (node as any).preview = updated.preview;
-      (node as any).value_type = updated.value_type;
-      setIsEditing(false);
-      setEditError("");
-    } catch (err) {
-      console.error("Failed to save value", err);
-    }
-  }, [editValue, isScalarEditable, node]);
+  // saveEdit moved below loadChildren so it can reference it without temporal dead zone
 
-  const handleKey = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        saveEdit();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        cancelEdit();
-      }
-    },
-    [saveEdit, cancelEdit]
-  );
+  // handleKey moved below saveEdit definition
 
   const isExpanded = expandedNodes.has(node.pointer);
   const hasChildren = node.has_children;
@@ -144,6 +139,78 @@ export function Tree({
     },
     [loading]
   );
+
+  const saveEdit = useCallback(async () => {
+    if (isScalarEditable) {
+      let valueToSend = editValue;
+      if (node.value_type === "boolean") {
+        const lower = valueToSend.trim().toLowerCase();
+        if (lower !== "true" && lower !== "false") {
+          setEditError("Enter true or false");
+          return;
+        }
+        valueToSend = lower; // normalized
+      }
+      try {
+        const updated = await invoke<Node>("set_node_value", {
+          pointer: node.pointer,
+          newValue: valueToSend,
+        });
+        (node as any).preview = updated.preview;
+        (node as any).value_type = updated.value_type;
+        setIsEditing(false);
+        setEditError("");
+      } catch (err) {
+        console.error("Failed to save value", err);
+      }
+      return;
+    }
+    if (isContainer) {
+      // Validate JSON and ensure same type
+      try {
+        const parsed = JSON.parse(editValue);
+        const parsedIsObject =
+          parsed && typeof parsed === "object" && !Array.isArray(parsed);
+        const parsedIsArray = Array.isArray(parsed);
+        if (node.value_type === "object" && !parsedIsObject) {
+          setEditError("Must remain an object");
+          return;
+        }
+        if (node.value_type === "array" && !parsedIsArray) {
+          setEditError("Must remain an array");
+          return;
+        }
+      } catch (err: any) {
+        setEditError("JSON parse error");
+        return;
+      }
+      try {
+        const updated = await invoke<Node>("set_subtree", {
+          pointer: node.pointer,
+          newJson: editValue,
+        });
+        (node as any).preview = updated.preview;
+        (node as any).child_count = updated.child_count;
+        (node as any).has_children = updated.has_children;
+        setIsEditing(false);
+        setEditError("");
+        // If expanded, refresh children list
+        if (expandedNodes.has(node.pointer)) {
+          loadChildren(node.pointer, 0, false);
+        }
+      } catch (err) {
+        console.error("Failed to save subtree", err);
+        setEditError("Save failed");
+      }
+    }
+  }, [
+    editValue,
+    isScalarEditable,
+    isContainer,
+    node,
+    expandedNodes,
+    loadChildren,
+  ]);
 
   // Expand all children of this node recursively
   const expandNodeChildren = useCallback(
@@ -279,6 +346,8 @@ export function Tree({
 
   // Load children if this node should be expanded but has no children loaded
   useEffect(() => {
+    // Do not auto-load or show children while editing a container (object/array)
+    if (isEditing && isContainer) return;
     if (isExpanded && hasChildren && children.length === 0 && !loading) {
       loadChildren(node.pointer, 0, false);
     }
@@ -289,6 +358,8 @@ export function Tree({
     loading,
     node.pointer,
     loadChildren,
+    isEditing,
+    isContainer,
   ]);
 
   // Intersection observer for infinite scroll
@@ -338,6 +409,19 @@ export function Tree({
     if (!hasChildren) return "  ";
     return isExpanded ? "▼ " : "▶ ";
   }, [hasChildren, isExpanded]);
+
+  const handleKey = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        saveEdit();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelEdit();
+      }
+    },
+    [saveEdit, cancelEdit]
+  );
 
   const getTypeColor = (type: string) => {
     switch (type) {
@@ -403,14 +487,102 @@ export function Tree({
     };
   }, [node.preview, searchQuery, searchOptions, effectiveShowFull]);
 
+  // Single vs double click management for header
+  const singleClickTimer = useRef<number | null>(null);
+  const CLICK_DELAY = 180; // ms threshold to distinguish double-click
+  const expandStateAtEditRef = useRef<boolean | null>(null);
+
+  const onHeaderClick = useCallback(
+    (_e: React.MouseEvent) => {
+      console.log("on header click");
+      // If editing, ignore row clicks (we'll restore original state on blur)
+      if (isEditing) {
+        _e.stopPropagation();
+        _e.preventDefault();
+        return;
+      }
+      // Start a timer; if a double-click happens, timer will be cleared in onHeaderDoubleClick
+      if (singleClickTimer.current) {
+        window.clearTimeout(singleClickTimer.current);
+        singleClickTimer.current = null;
+        return;
+      }
+      singleClickTimer.current = window.setTimeout(() => {
+        handleToggle();
+        singleClickTimer.current = null;
+      }, CLICK_DELAY);
+    },
+    [isEditing, handleToggle]
+  );
+
+  const onHeaderDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      console.log("on header double click");
+      // Prevent pending single-click expand/collapse
+      if (singleClickTimer.current) {
+        window.clearTimeout(singleClickTimer.current);
+        singleClickTimer.current = null;
+      }
+      // Record current expansion state once when entering edit
+      if (expandStateAtEditRef.current === null) {
+        expandStateAtEditRef.current = isExpanded;
+      }
+      // Enter edit mode only when double-clicking on a value-capable area (preview span triggers its own double-click already)
+      // Here we allow double click anywhere on the row EXCEPT the expand icon (which stops propagation) to edit scalars/containers.
+      beginEdit(e);
+    },
+    [beginEdit, isExpanded]
+  );
+
+  // When editing ends (save or cancel), restore expansion state if it drifted
+  // useEffect(() => {
+  //   if (!isEditing && expandStateAtEditRef.current !== null) {
+  //     const shouldBeExpanded = expandStateAtEditRef.current;
+  //     if (shouldBeExpanded !== isExpanded) {
+  //       // Toggle to restore desired state
+  //       handleToggle();
+  //     }
+  //     expandStateAtEditRef.current = null;
+  //   }
+  // }, [isEditing, isExpanded, handleToggle]);
+
+  useEffect(() => {
+    return () => {
+      if (singleClickTimer.current)
+        window.clearTimeout(singleClickTimer.current);
+    };
+  }, []);
+
   return (
     <div className="tree-node">
       <div
         className={`node-header ${hasChildren ? "expandable" : ""}`}
-        style={{ paddingLeft: "16px" }}
-        onClick={handleToggle}
+        style={{ paddingLeft: "16px", position: "relative" }}
+        onClick={onHeaderClick}
+        onDoubleClick={onHeaderDoubleClick}
       >
-        <span className="expand-icon">{getIcon}</span>
+        {isEditing && (
+          <div
+            className="edit-click-shield"
+            onClick={(e) => {
+              e.stopPropagation(); /* absorb */
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation(); /* already editing */
+            }}
+            // Allow blur: do NOT prevent pointer events on editor below header; we only cover header area
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 2,
+              background: "transparent",
+              cursor: "default",
+            }}
+          />
+        )}
+        {!(isEditing && isContainer) && hasChildren && (
+          <span className="expand-icon">{getIcon}</span>
+        )}
         <span className="node-key copyable-item">
           {searchQuery && searchOptions
             ? highlightText(node.key || "root", searchQuery, searchOptions)
@@ -450,95 +622,147 @@ export function Tree({
         >
           {node.value_type}
         </span>
-        {node.child_count > 0 && (
+        {node.child_count > 0 && !(isEditing && isContainer) && (
           <span className="child-count">({node.child_count})</span>
         )}
-        <span
-          className="node-preview copyable-item"
-          style={{
-            whiteSpace: effectiveShowFull ? "pre-wrap" : "pre",
-            wordBreak: effectiveShowFull ? "break-word" : "normal",
-            overflowX: effectiveShowFull ? "visible" : undefined,
-            display: "inline-block",
-            maxWidth: "100%",
-            cursor: isScalarEditable ? "text" : undefined,
-          }}
-          onDoubleClick={beginEdit}
-        >
-          {isEditing ? (
-            node.value_type === "boolean" ? (
-              <span style={{ display: "inline-flex", flexDirection: "column" }}>
-                <input
-                  ref={inputRef as any}
-                  type="text"
-                  value={editValue}
-                  onChange={(e) => {
-                    setEditValue(e.target.value);
-                    if (editError) setEditError("");
-                  }}
-                  onBlur={() => saveEdit()}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      saveEdit();
-                    } else if (e.key === "Escape") {
-                      e.preventDefault();
-                      cancelEdit();
-                    }
-                  }}
-                  className={`tree-edit-input tree-edit-transition-enter ${
-                    editError ? "edit-error" : ""
-                  }`}
-                  size={Math.min(Math.max(editValue.length + 1, 4), 10)}
-                  spellCheck={false}
-                  style={{ width: "auto" }}
-                />
-                {editError && (
-                  <span
-                    className="tree-edit-error-msg"
-                    style={{
-                      color: "#e74c3c",
-                      fontSize: "0.65rem",
-                      marginTop: 2,
-                    }}
-                  >
-                    {editError}
-                  </span>
-                )}
-              </span>
-            ) : (
+        {(!isEditing || (isEditing && isContainer)) && (
+          <span
+            className="node-preview copyable-item"
+            style={{
+              whiteSpace: effectiveShowFull ? "pre-wrap" : "pre",
+              wordBreak: effectiveShowFull ? "break-word" : "normal",
+              overflowX: effectiveShowFull ? "visible" : undefined,
+              display: "inline-block",
+              maxWidth: "100%",
+              cursor: isScalarEditable || isContainer ? "text" : undefined,
+            }}
+            onDoubleClick={beginEdit}
+          >
+            {previewContent}
+            <CopyIcon
+              text={node.preview}
+              title="Copy value"
+              getActualValue={
+                (node.value_type === "object" || node.value_type === "array") &&
+                node.has_children
+                  ? getActualValue
+                  : undefined
+              }
+            />
+          </span>
+        )}
+      </div>
+      {isEditing && !isContainer && (
+        <div style={{ marginLeft: "36px", marginTop: 2 }}>
+          {node.value_type === "boolean" ? (
+            <span style={{ display: "inline-flex", flexDirection: "column" }}>
               <input
                 ref={inputRef as any}
                 type="text"
                 value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
+                onChange={(e) => {
+                  setEditValue(e.target.value);
+                  if (editError) setEditError("");
+                }}
                 onBlur={() => saveEdit()}
-                onKeyDown={handleKey}
-                className="tree-edit-input tree-edit-transition-enter"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    saveEdit();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelEdit();
+                  }
+                }}
+                className={`tree-edit-input tree-edit-transition-enter ${
+                  editError ? "edit-error" : ""
+                }`}
+                size={Math.min(Math.max(editValue.length + 1, 4), 10)}
                 spellCheck={false}
-                size={Math.min(Math.max(editValue.length + 1, 4), 80)}
                 style={{ width: "auto" }}
               />
-            )
+              {editError && (
+                <span
+                  className="tree-edit-error-msg"
+                  style={{
+                    color: "#e74c3c",
+                    fontSize: "0.65rem",
+                    marginTop: 2,
+                  }}
+                >
+                  {editError}
+                </span>
+              )}
+            </span>
           ) : (
-            <>
-              {previewContent}
-              <CopyIcon
-                text={node.preview}
-                title="Copy value"
-                getActualValue={
-                  (node.value_type === "object" ||
-                    node.value_type === "array") &&
-                  node.has_children
-                    ? getActualValue
-                    : undefined
-                }
-              />
-            </>
+            <input
+              ref={inputRef as any}
+              type="text"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={() => saveEdit()}
+              onKeyDown={handleKey}
+              className="tree-edit-input tree-edit-transition-enter"
+              spellCheck={false}
+              size={Math.min(Math.max(editValue.length + 1, 4), 80)}
+              style={{ width: "auto" }}
+            />
           )}
-        </span>
-      </div>
-      {isExpanded && (
+        </div>
+      )}
+      {isEditing && isContainer && (
+        <div style={{ marginLeft: "36px", marginTop: "4px" }}>
+          <div
+            style={{
+              display: "inline-flex",
+              flexDirection: "column",
+              width: "100%",
+              maxWidth: "640px",
+            }}
+          >
+            <textarea
+              ref={inputRef as any}
+              value={editValue}
+              onChange={(e) => {
+                setEditValue(e.target.value);
+                if (editError) setEditError("");
+              }}
+              onBlur={() => saveEdit()}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  saveEdit();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEdit();
+                }
+              }}
+              className={`tree-edit-textarea tree-edit-transition-enter ${
+                editError ? "edit-error" : ""
+              }`}
+              rows={Math.min(20, Math.max(6, editValue.split("\n").length))}
+              spellCheck={false}
+              style={{
+                fontFamily: "monospace",
+                fontSize: "0.75rem",
+                minWidth: "420px",
+              }}
+            />
+            {editError && (
+              <span
+                className="tree-edit-error-msg"
+                style={{ color: "#e74c3c", fontSize: "0.65rem", marginTop: 2 }}
+              >
+                {editError}
+              </span>
+            )}
+            <span style={{ fontSize: "0.6rem", opacity: 0.6, marginTop: 2 }}>
+              Ctrl/⌘+Enter to save · Esc to cancel
+            </span>
+          </div>
+        </div>
+      )}
+      {isExpanded && !(isEditing && isContainer) && (
         <div className="node-children" style={{ marginLeft: "20px" }}>
           {children.map((child, index) => (
             <Tree

@@ -674,6 +674,43 @@ fn set_node_value(pointer: String, new_value: String, state: tauri::State<'_, Ap
     build_node_for_pointer(root_mut, &pointer)
 }
 
+#[tauri::command]
+fn set_subtree(pointer: String, new_json: String, state: tauri::State<'_, AppState>) -> Result<Node, String> {
+    use serde_json::Value as JsonValue;
+    // Parse input JSON first
+    let parsed: JsonValue = serde_json::from_str(&new_json).map_err(|e| format!("Parse error: {e}"))?;
+
+    // Must be object or array
+    let new_kind = match &parsed {
+        JsonValue::Object(_) => "object",
+        JsonValue::Array(_) => "array",
+        _ => return Err("Edited subtree must be an object or array".into()),
+    };
+
+    // Acquire write lock
+    let mut guard = state.doc.write();
+    let Some(root_arc) = &mut *guard else { return Err("No document loaded".into()); };
+    let root_mut: &mut JsonValue = Arc::make_mut(root_arc);
+
+    // Locate current value
+    let target_ptr = if pointer.is_empty() { Some(root_mut as *mut JsonValue) } else { root_mut.pointer_mut(&pointer).map(|v| v as *mut JsonValue) };
+    let raw_ptr = target_ptr.ok_or("Invalid pointer")?;
+    let current: &mut JsonValue = unsafe { &mut *raw_ptr };
+
+    // Ensure same container type
+    let existing_kind = match current {
+        JsonValue::Object(_) => "object",
+        JsonValue::Array(_) => "array",
+        _ => return Err("Current value is not an object or array".into()),
+    };
+    if existing_kind != new_kind { return Err("Type change not allowed (must remain object/array)".into()); }
+
+    // Replace
+    *current = parsed;
+
+    build_node_for_pointer(root_mut, &pointer)
+}
+
 pub fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -689,6 +726,7 @@ pub fn main() {
             clear_last_opened_file,
             get_node_value,
             set_node_value
+            ,set_subtree
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
