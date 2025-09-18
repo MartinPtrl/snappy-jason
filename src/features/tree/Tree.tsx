@@ -262,16 +262,6 @@ export function Tree({
     [handleExpand]
   );
 
-  // Function to get the actual JSON value for copying
-  const getActualValue = useCallback(async (): Promise<string> => {
-    try {
-      return await invoke<string>("get_node_value", { pointer: node.pointer });
-    } catch (error) {
-      console.error("Failed to get actual value:", error);
-      throw error;
-    }
-  }, [node.pointer]);
-
   // Function to collapse all children recursively
   const collapseAllChildren = useCallback(
     async (targetPointer: string, excludeRoot = false) => {
@@ -642,12 +632,7 @@ export function Tree({
             <CopyIcon
               text={node.preview}
               title="Copy value"
-              getActualValue={
-                (node.value_type === "object" || node.value_type === "array") &&
-                node.has_children
-                  ? getActualValue
-                  : undefined
-              }
+              pointer={node.pointer}
             />
             {(isScalarEditable || isContainer) && (
               <button

@@ -4,14 +4,14 @@ interface CopyIconProps {
   text: string;
   className?: string;
   title?: string;
-  getActualValue?: () => Promise<string>; // New prop for getting actual value
+  pointer?: string;
 }
 
 export function CopyIcon({
   text,
   className = "",
   title = "Copy to clipboard",
-  getActualValue,
+  pointer,
 }: CopyIconProps) {
   const [copied, setCopied] = useState(false);
 
@@ -19,18 +19,24 @@ export function CopyIcon({
     e.stopPropagation(); // Prevent triggering parent click events
 
     try {
-      let valueToCopy = text;
-      
-      // If getActualValue is provided, use it to get the real content
-      if (getActualValue) {
+      // If a pointer is provided attempt native copy through Tauri command first
+      if (pointer) {
         try {
-          valueToCopy = await getActualValue();
-        } catch (error) {
-          console.warn("Failed to get actual value, falling back to preview text:", error);
-          // Fall back to the preview text if getting actual value fails
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("copy_node_value", { pointer });
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1000);
+          return;
+        } catch (nativeErr) {
+          console.warn(
+            "Native copy_node_value failed, falling back to JS copy:",
+            nativeErr
+          );
         }
       }
-      
+
+      let valueToCopy = text;
+
       await navigator.clipboard.writeText(valueToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 1000); // Reset after 1 second

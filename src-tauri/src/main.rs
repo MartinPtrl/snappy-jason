@@ -622,6 +622,22 @@ fn get_node_value(pointer: String, state: tauri::State<'_, AppState>) -> Result<
     serde_json::to_string(value).map_err(|e| e.to_string())
 }
 
+// Copy the full JSON value of a node (or root if pointer empty) directly to the system clipboard.
+// This avoids needing a user-activation constrained browser API and skips transferring large JSON
+// blobs back to the frontend only to copy them again.
+#[tauri::command]
+fn copy_node_value(pointer: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    use arboard::Clipboard;
+    let guard = state.doc.read();
+    let Some(root) = &*guard else { return Err("No document loaded".into()); };
+
+    let value = if pointer.is_empty() { root.as_ref() } else { root.pointer(&pointer).ok_or("Invalid pointer")? };
+    let serialized = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    let mut cb = Clipboard::new().map_err(|e| e.to_string())?;
+    cb.set_text(serialized).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // Helper to rebuild a Node for a specific pointer after mutation
 fn build_node_for_pointer(root: &Value, pointer: &str) -> Result<Node, String> {
     let value = if pointer.is_empty() { root } else { root.pointer(pointer).ok_or("Invalid pointer")? };
@@ -727,6 +743,7 @@ pub fn main() {
             get_node_value,
             set_node_value
             ,set_subtree
+            ,copy_node_value
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
