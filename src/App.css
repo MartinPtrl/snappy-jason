@@ -798,6 +798,106 @@ body {
   position: relative;
 }
 
+/* Inline edit input styles */
+.tree-edit-input,
+.tree-edit-select {
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 2px 6px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-color);
+  border-radius: 4px;
+  line-height: 1.2;
+  min-width: 60px;
+  max-width: 480px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15) inset;
+  transition: border-color 0.15s ease, background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.tree-edit-input:focus,
+.tree-edit-select:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.tree-edit-input.edit-error {
+  border-color: var(--button-danger-bg);
+  box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.35);
+}
+
+.tree-edit-error-msg {
+  font-family: inherit;
+  color: var(--button-danger-bg);
+  animation: fadeIn 120ms ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.tree-edit-input {
+  font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas,
+    "Courier New", monospace;
+  white-space: pre;
+}
+
+.tree-edit-select {
+  cursor: pointer;
+}
+
+/* Boolean radio group styling */
+.tree-boolean-radio-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15) inset;
+}
+.tree-boolean-radio-group:focus-within {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+.tree-boolean-radio-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  user-select: none;
+}
+.tree-boolean-radio-group input[type="radio"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Smooth fade/scale for entering edit mode */
+.tree-edit-transition-enter {
+  animation: treeEditIn 120ms ease;
+}
+@keyframes treeEditIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .copyable-item:hover .copy-icon,
 .copyable-item:hover .expand-icon-btn {
   opacity: 0.6;

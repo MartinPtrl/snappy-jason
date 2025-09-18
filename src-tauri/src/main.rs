@@ -622,6 +622,58 @@ fn get_node_value(pointer: String, state: tauri::State<'_, AppState>) -> Result<
     serde_json::to_string(value).map_err(|e| e.to_string())
 }
 
+// Helper to rebuild a Node for a specific pointer after mutation
+fn build_node_for_pointer(root: &Value, pointer: &str) -> Result<Node, String> {
+    let value = if pointer.is_empty() { root } else { root.pointer(pointer).ok_or("Invalid pointer")? };
+    Ok(create_node_for_path(value, pointer))
+}
+
+#[tauri::command]
+fn set_node_value(pointer: String, new_value: String, state: tauri::State<'_, AppState>) -> Result<Node, String> {
+    use serde_json::Value as JsonValue;
+    // Acquire write lock to allow mutation
+    let mut guard = state.doc.write();
+    let Some(root_arc) = &mut *guard else { return Err("No document loaded".into()); };
+
+    // We clone the Arc if needed to obtain a mutable reference
+    let root_mut: &mut JsonValue = Arc::make_mut(root_arc);
+
+    // Locate target value (immutable first to check type)
+    let current_value_opt = if pointer.is_empty() { Some(root_mut as *mut JsonValue) } else { root_mut.pointer_mut(&pointer).map(|v| v as *mut JsonValue) };
+    let current_ptr = current_value_opt.ok_or("Invalid pointer")?;
+    // Safety: we only use pointer while holding &mut root_mut
+    let current_value: &mut JsonValue = unsafe { &mut *current_ptr };
+
+    // Only allow editing primitive scalar types
+    match current_value {
+        JsonValue::String(s) => {
+            // Keep as string directly
+            *s = new_value;
+        }
+        JsonValue::Number(n) => {
+            // Parse number; must remain number
+            // Accept integer or float
+            let trimmed = new_value.trim();
+            let parsed_number = if let Ok(i) = trimmed.parse::<i64>() { serde_json::Number::from(i) } else if let Ok(f) = trimmed.parse::<f64>() { serde_json::Number::from_f64(f).ok_or("Invalid number")? } else { return Err("Invalid number literal".into()); };
+            *n = parsed_number;
+        }
+        JsonValue::Bool(b) => {
+            let lower = new_value.to_ascii_lowercase();
+            let parsed_bool = match lower.as_str() { "true" => true, "false" => false, _ => return Err("Invalid boolean (expected true/false)".into()) };
+            *b = parsed_bool;
+        }
+        JsonValue::Null => {
+            return Err("Editing null not supported".into());
+        }
+        JsonValue::Array(_) | JsonValue::Object(_) => {
+            return Err("Editing non-scalar value not supported".into());
+        }
+    }
+
+    // Build updated node to return
+    build_node_for_pointer(root_mut, &pointer)
+}
+
 pub fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -635,7 +687,8 @@ pub fn main() {
             save_last_opened_file,
             load_last_opened_file,
             clear_last_opened_file,
-            get_node_value
+            get_node_value,
+            set_node_value
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
