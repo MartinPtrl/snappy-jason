@@ -849,6 +849,27 @@ body {
   white-space: pre;
 }
 
+.tree-edit-textarea {
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--text-color);
+  resize: vertical;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) inset;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+    background 0.15s ease;
+  line-height: 1.3;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.tree-edit-textarea:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
 .tree-edit-select {
   cursor: pointer;
 }
