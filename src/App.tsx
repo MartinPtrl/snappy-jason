@@ -18,6 +18,7 @@ function App() {
     loadFile,
     loadClipboard,
     loadLastOpenedFile,
+    openFileDialog,
     unloadFile,
     loadMoreNodes,
     parseProgress,
@@ -913,6 +914,22 @@ function App() {
         {nodes.length === 0 && !loading && !error && (
           <div className="empty-state">
             <p>💡 Drag and drop a JSON file anywhere on this window</p>
+            <p>
+              or{" "}
+              <button
+                onClick={openFileDialog}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--accent-color)",
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                  font: "inherit",
+                }}
+              >
+                click here to browse for a file
+              </button>
+            </p>
           </div>
         )}
       </div>

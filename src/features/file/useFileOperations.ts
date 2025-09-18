@@ -175,6 +175,21 @@ export const useFileOperations = () => {
     []
   );
 
+  const openFileDialog = useCallback(async () => {
+    try {
+      const filePath = await invoke<string | null>("open_file_dialog");
+      if (filePath) {
+        console.log("📂 Selected file from dialog:", filePath);
+        loadFile(filePath);
+      } else {
+        console.log("📂 File dialog cancelled");
+      }
+    } catch (error) {
+      console.error("Failed to open file dialog:", error);
+      setError("Failed to open file dialog");
+    }
+  }, [loadFile, setError]);
+
   const unloadFile = useCallback(
     async (onComplete?: () => void) => {
       clearFile();
@@ -250,6 +265,7 @@ export const useFileOperations = () => {
     loadFile,
     loadClipboard,
     loadLastOpenedFile,
+    openFileDialog,
     unloadFile,
     cancelLoad,
     loadMoreNodes,
