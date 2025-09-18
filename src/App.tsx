@@ -3,25 +3,33 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Node, SearchResult, SearchOptions } from "@/shared/types";
 import { useFileOperations } from "@/features/file";
-import { Tree, MultiFileTree, useTreeOperations } from "@/features/tree";
-import { CopyIcon, ToggleThemeButton } from "@shared";
+import { Tree, useTreeOperations } from "@/features/tree";
+import { CopyIcon, ProgressBar, ToggleThemeButton } from "@shared";
 import { Updater } from "@/shared/Updater";
 import "./App.css";
 
 function App() {
   // File operations hook
   const {
+    fileName,
+    loading,
+    error,
+    nodes,
+    loadFile,
     loadLastOpenedFile,
-    // Multi-file operations
-    files,
-    loadFileMulti,
-    removeFileMulti,
-    loadMoreNodesMulti,
-    clearAllFiles,
+    unloadFile,
+    loadMoreNodes,
+    parseProgress,
+    cancelLoad,
   } = useFileOperations();
 
   // Other state (non-file related)
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // Main level pagination state
+  const [mainHasMore, setMainHasMore] = useState(false);
+  const [mainLoading, setMainLoading] = useState(false);
+  const mainLoadMoreRef = useRef<HTMLDivElement>(null);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -54,105 +62,88 @@ function App() {
   const searchLoadMoreRef = useRef<HTMLDivElement>(null);
 
   // Tree operations
-  const { handleCollapseAll, expandedNodes, handleExpandAll } = useTreeOperations();
+  const { handleExpandAll, handleCollapseAll, expandedNodes } =
+    useTreeOperations();
 
-  // Handle expand one level progressively - Updated for multi-file support with gradual expansion
+  // Helper function to collect expandable node pointers from current level
+  const collectExpandablePointers = (nodeArray: any[]): string[] => {
+    const pointers: string[] = [];
+    nodeArray.forEach((node) => {
+      if (
+        (node.value_type === "object" || node.value_type === "array") &&
+        node.has_children
+      ) {
+        pointers.push(node.pointer);
+      }
+    });
+    return pointers;
+  };
+
+  // Get all currently visible unexpanded nodes by examining the tree structure
+  const getNextLevelExpandableNodes = async (): Promise<string[]> => {
+    // Start with top-level nodes
+    const topLevelPointers = collectExpandablePointers(nodes);
+
+    // Find the first level that has unexpanded nodes
+    let currentPointers = topLevelPointers;
+    const maxDepth = 10; // Prevent infinite loops
+
+    for (let depth = 0; depth < maxDepth; depth++) {
+      const unexpandedAtCurrentLevel = currentPointers.filter(
+        (pointer) => !expandedNodes.has(pointer)
+      );
+
+      if (unexpandedAtCurrentLevel.length > 0) {
+        // Found unexpanded nodes at this level, return them
+        return unexpandedAtCurrentLevel;
+      }
+
+      // All nodes at this level are expanded, get their children for the next level
+      const nextLevelPointers: string[] = [];
+
+      for (const pointer of currentPointers) {
+        try {
+          const children = await invoke<any[]>("load_children", {
+            pointer: pointer,
+            offset: 0,
+            limit: 1000,
+          });
+
+          const expandableChildren = children
+            .filter(
+              (child) =>
+                (child.value_type === "object" ||
+                  child.value_type === "array") &&
+                child.has_children
+            )
+            .map((child) => child.pointer);
+
+          nextLevelPointers.push(...expandableChildren);
+        } catch (error) {
+          console.log(`Failed to load children for ${pointer}:`, error);
+        }
+      }
+
+      if (nextLevelPointers.length === 0) {
+        // No more expandable nodes found
+        break;
+      }
+
+      currentPointers = nextLevelPointers;
+    }
+
+    return [];
+  };
+
+  // Handle expand one level progressively
   const onExpandAll = async () => {
-    if (files.length === 0) return;
-    
-    const allNodePointers: string[] = [];
-    
-    // First, quickly check root level nodes without loading children
-    for (const file of files) {
-      if (!file.nodes || file.nodes.length === 0) continue;
-      
-      for (const rootNode of file.nodes) {
-        if (rootNode.has_children && !expandedNodes.has(rootNode.pointer)) {
-          allNodePointers.push(rootNode.pointer);
-        }
-      }
-    }
-    
-    // If we have root level nodes to expand, expand them first
-    if (allNodePointers.length > 0) {
-      console.log(`Expanding ${allNodePointers.length} root level nodes`);
-      handleExpandAll(allNodePointers);
-      return;
-    }
-    
-    // No root nodes to expand, so we need to look deeper
-    // Use requestAnimationFrame to avoid blocking the UI
-    const findNextLevelNodes = async (): Promise<string[]> => {
-      const nextLevelNodes: string[] = [];
-      const batchSize = 5; // Process files in small batches
-      
-      for (let i = 0; i < files.length; i += batchSize) {
-        const fileBatch = files.slice(i, i + batchSize);
-        
-        // Process batch and yield to UI
-        await new Promise(resolve => {
-          setTimeout(async () => {
-            for (const file of fileBatch) {
-              if (!file.nodes || file.nodes.length === 0) continue;
-              
-              // Check each expanded root node
-              for (const rootNode of file.nodes) {
-                if (expandedNodes.has(rootNode.pointer)) {
-                  try {
-                    const children = await invoke<Node[]>("load_children_multi", {
-                      fileId: file.id,
-                      pointer: rootNode.pointer,
-                      offset: 0,
-                      limit: 100 // Smaller batch size
-                    });
-                    
-                    // Find unexpanded children with children
-                    for (const child of children) {
-                      if (child.has_children && !expandedNodes.has(child.pointer)) {
-                        nextLevelNodes.push(child.pointer);
-                      }
-                    }
-                  } catch (error) {
-                    console.error(`Failed to load children for ${rootNode.pointer}:`, error);
-                  }
-                }
-              }
-            }
-            resolve(undefined);
-          }, 0); // Yield to event loop
-        });
-      }
-      
-      return nextLevelNodes;
-    };
-    
-    // Find and expand next level nodes
-    try {
-      const nextLevelNodes = await findNextLevelNodes();
-      
-      if (nextLevelNodes.length > 0) {
-        console.log(`Expanding ${nextLevelNodes.length} next level nodes`);
-        
-        // Expand nodes in smaller batches to avoid UI freeze
-        const expandBatchSize = 10;
-        for (let i = 0; i < nextLevelNodes.length; i += expandBatchSize) {
-          const batch = nextLevelNodes.slice(i, i + expandBatchSize);
-          handleExpandAll(batch);
-          
-          // Small delay between batches if there are many nodes
-          if (i + expandBatchSize < nextLevelNodes.length) {
-            await new Promise(resolve => setTimeout(resolve, 50));
-          }
-        }
-      } else {
-        console.log("No more nodes to expand");
-      }
-    } catch (error) {
-      console.error("Error during gradual expansion:", error);
+    const pointers = await getNextLevelExpandableNodes();
+    if (pointers.length > 0) {
+      handleExpandAll(pointers);
     }
   };
 
-  // Handle collapse all - Works with multi-file support
+  // Handle collapse all
   const onCollapseAll = () => {
     handleCollapseAll();
   };
@@ -170,42 +161,32 @@ function App() {
   }, [searchOptions]);
 
   const handleFileLoad = useCallback(async (path: string) => {
-    console.log(`🎯 handleFileLoad called with: ${path}`);
-    
     // Clear search when loading new file
     setIsSearchMode(false);
     setSearchQuery("");
     setSearchResults([]);
     setSearchError("");
 
-    // Use multi-file loading to add to existing files
-    try {
-      console.log(`📂 Calling loadFileMulti for: ${path}`);
-      const fileId = await loadFileMulti(path, {
-        onSuccess: (nodes: Node[], fileId: string) => {
-          // Check if there might be more nodes at the root level for this file
-          console.log(`✅ File ${fileId} loaded successfully with ${nodes.length} nodes`);
-        },
-        onError: (error: string, fileId: string) => {
-          console.error("File load error for", fileId, ":", error);
-        },
-      });
-      console.log("File added with ID:", fileId);
-    } catch (error) {
-      console.error("Failed to load file:", error);
-    }
-  }, [loadFileMulti]);
+    await loadFile(path, {
+      onSuccess: (nodes: Node[]) => {
+        // Check if there might be more nodes at the root level
+        setMainHasMore(nodes.length === 100);
+      },
+      onError: (error: string) => {
+        console.error("File load error:", error);
+      },
+    });
+  }, []);
 
   // Load last opened file on app startup
   useEffect(() => {
     loadLastOpenedFile({
       onSuccess: (nodes: Node[]) => {
-        // File loaded successfully - no need to track main pagination anymore
-        // since MultiFileTree handles its own pagination
-        console.log("Loaded last opened file with", nodes.length, "nodes");
+        // Check if there might be more nodes at the root level
+        setMainHasMore(nodes.length === 100);
       },
     });
-  }, [loadLastOpenedFile]);
+  }, []);
 
   // Listen for Tauri file drop events (this is the ONLY way that works in Tauri)
   useEffect(() => {
@@ -274,6 +255,43 @@ function App() {
     };
   }, []);
 
+  // Main level infinite scroll observer
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && mainHasMore && !mainLoading) {
+          loadMoreMain();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (mainLoadMoreRef.current) {
+      observer.observe(mainLoadMoreRef.current);
+    }
+
+    return () => {
+      if (mainLoadMoreRef.current) {
+        observer.unobserve(mainLoadMoreRef.current);
+      }
+    };
+  }, [mainHasMore, mainLoading, nodes.length]);
+
+  const loadMoreMain = async () => {
+    if (mainLoading || !mainHasMore) return;
+
+    setMainLoading(true);
+    try {
+      const result = await loadMoreNodes(nodes.length, 100);
+      setMainHasMore(result.length === 100); // If we got exactly 100, there might be more
+    } catch (error) {
+      console.error("Failed to load more nodes:", error);
+    } finally {
+      setMainLoading(false);
+    }
+  };
+
   const currentSearchIdRef = useRef<number>(0);
   const performSearch = async (
     query: string,
@@ -311,14 +329,10 @@ function App() {
       const offset = (page - 1) * pageSize;
       const limit = pageSize;
       const resp = await invoke<{
-        files: Array<{
-          file_id: string;
-          results: SearchResult[];
-          total_count: number;
-        }>;
+        results: SearchResult[];
         total_count: number;
         has_more: boolean;
-      }>("search_multi", {
+      }>("search", {
         query: query.trim(),
         searchKeys: searchOptions.searchKeys,
         searchValues: searchOptions.searchValues,
@@ -330,12 +344,8 @@ function App() {
         limit,
       });
       if (currentSearchIdRef.current !== newId) return;
-      
-      // Flatten results from all files
-      const allResults = resp.files.flatMap(file => file.results);
-      
       setSearchResults((prev) =>
-        append ? [...prev, ...allResults] : allResults
+        append ? [...prev, ...resp.results] : resp.results
       );
       setSearchStats({ totalCount: resp.total_count, hasMore: resp.has_more });
     } catch (error) {
@@ -378,9 +388,12 @@ function App() {
     setSearchPage(1);
     setSearchError("");
 
-    // Clear all files instead of just one
-    clearAllFiles();
-  }, [clearAllFiles]);
+    // Clear main level pagination state
+    setMainHasMore(false);
+    setMainLoading(false);
+
+    unloadFile();
+  }, [unloadFile]);
 
   // Infinite scroll for search results
   useEffect(() => {
@@ -426,11 +439,11 @@ function App() {
             <Updater checkOnStartup={true} />
             <ToggleThemeButton />
             <div className="file-input-container">
-              {files.length > 0 && (
+              {(fileName || nodes.length > 0) && (
                 <button
                   onClick={handleFileUnload}
                   className="file-button unload-button"
-                  disabled={files.some(file => file.loading)}
+                  disabled={loading}
                   title="Clear"
                 >
                   🗑️
@@ -440,29 +453,15 @@ function App() {
           </div>
         </header>
 
-        {files.length > 0 && (
+        {fileName && (
           <div className="file-info">
-            {files.map((file) => (
-              <div key={file.id} className="file-name-line">
-                📄 {file.fileName}
-                {file.loading && (
-                  <span className="file-status loading">
-                    (Loading {file.parseProgress > 0 ? `${Math.round(file.parseProgress)}%` : '...'})
-                  </span>
-                )}
-                {file.error && (
-                  <span className="file-status error">
-                    (Error: {file.error})
-                  </span>
-                )}
-              </div>
-            ))}
+            <span className="file-name">📄 {fileName}</span>
           </div>
         )}
 
         {/* Progress bar moved to centered overlay */}
 
-        {files.length > 0 && (
+        {((!loading && fileName) || nodes.length > 0) && (
           <div className="search-container">
             <div className="search-bar">
               <input
@@ -600,7 +599,9 @@ function App() {
       </div>
 
       <div className="main-content">
-        {files.length > 0 && !isSearchMode && (
+        {error && <div className="error-message">❌ {error}</div>}
+
+        {nodes.length > 0 && !isSearchMode && (
           <div className="json-viewer">
             <div className="tree-controls">
               <button
@@ -618,11 +619,28 @@ function App() {
                 Collapse all
               </button>
             </div>
-            <MultiFileTree
-              files={files}
-              onRemoveFile={removeFileMulti}
-              onLoadMoreNodes={loadMoreNodesMulti}
-            />
+            {nodes.map((node, index) => (
+              <Tree key={`${node.pointer}-${index}`} node={node} level={0} />
+            ))}
+            {mainHasMore && (
+              <div
+                ref={mainLoadMoreRef}
+                className="infinite-scroll-trigger"
+                style={{
+                  height: "20px",
+                  opacity: 0.5,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {mainLoading && (
+                  <div style={{ fontSize: "12px", color: "#666" }}>
+                    Loading more items...
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -730,7 +748,7 @@ function App() {
             </div>
           )}
 
-        {files.length === 0 && (
+        {nodes.length === 0 && !loading && !error && (
           <div className="empty-state">
             <p>💡 Drag and drop a JSON file anywhere on this window</p>
           </div>
@@ -740,6 +758,15 @@ function App() {
       {isDragOver && (
         <div className="drag-overlay">
           <div className="drag-message">📁 Drop your JSON file here</div>
+        </div>
+      )}
+      {loading && nodes.length === 0 && (
+        <div className="progress-center-overlay">
+          <ProgressBar
+            percent={parseProgress}
+            detail={fileName || undefined}
+            onCancel={cancelLoad}
+          />
         </div>
       )}
     </div>
