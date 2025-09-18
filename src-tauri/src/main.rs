@@ -744,7 +744,44 @@ pub fn main() {
             set_node_value
             ,set_subtree
             ,copy_node_value
+            ,parse_stringified_json
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// Attempt to parse a string node whose content itself is JSON (object/array) and replace it in-place.
+// This is useful for APIs that double-encode JSON payloads. We restrict to top-level object/array
+// to avoid accidental coercion of primitive-like strings (e.g. numbers, booleans) that a user might
+// prefer to keep as literal strings.
+#[tauri::command]
+fn parse_stringified_json(pointer: String, state: tauri::State<'_, AppState>) -> Result<Node, String> {
+    use serde_json::Value as JsonValue;
+    // Acquire write lock for mutation
+    let mut guard = state.doc.write();
+    let Some(root_arc) = &mut *guard else { return Err("No document loaded".into()); };
+    let root_mut: &mut JsonValue = Arc::make_mut(root_arc);
+
+    // Locate target node (must be string)
+    let target_ptr = if pointer.is_empty() { Some(root_mut as *mut JsonValue) } else { root_mut.pointer_mut(&pointer).map(|v| v as *mut JsonValue) };
+    let raw_ptr = target_ptr.ok_or("Invalid pointer")?;
+    let current: &mut JsonValue = unsafe { &mut *raw_ptr };
+
+    let Some(as_str) = current.as_str() else { return Err("Target node is not a string".into()); };
+
+    // Quick heuristic: trim and must start with { or [ and end with } or ]
+    let trimmed = as_str.trim();
+    if !( (trimmed.starts_with('{') && trimmed.ends_with('}')) || (trimmed.starts_with('[') && trimmed.ends_with(']')) ) {
+        return Err("String does not look like a JSON object/array".into());
+    }
+
+    let parsed: JsonValue = serde_json::from_str(trimmed).map_err(|e| format!("Parse error: {e}"))?;
+    match parsed {
+        JsonValue::Object(_) | JsonValue::Array(_) => {
+            *current = parsed; // replace
+        }
+        _ => return Err("Parsed value is not an object/array".into()),
+    }
+
+    build_node_for_pointer(root_mut, &pointer)
 }

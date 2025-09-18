@@ -43,6 +43,18 @@ export function Tree({
   const isContainer =
     node.value_type === "object" || node.value_type === "array";
 
+  // Heuristic to detect if a string preview looks like a stringified JSON object/array.
+  // We only look at the (possibly truncated) preview for quick UI hint; the backend will
+  // perform full validation when the user clicks Parse. Truncation might hide closing brace;
+  // to reduce false positives we require the preview to start with '{' or '['.
+  // If truncated (ends with …) we still show the button because the original may still parse.
+  const looksLikeStringifiedJson = useMemo(() => {
+    if (node.value_type !== "string") return false;
+    if (!node.preview) return false;
+    const trimmed = node.preview.trim();
+    return trimmed.startsWith("{") || trimmed.startsWith("[");
+  }, [node.value_type, node.preview]);
+
   useEffect(() => {
     if (!isEditing) return;
     if (isContainer) {
@@ -657,6 +669,51 @@ export function Tree({
                 >
                   <path d="M12 20h9" />
                   <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </button>
+            )}
+            {looksLikeStringifiedJson && (
+              <button
+                type="button"
+                className="copy-icon edit-icon"
+                title="Parse embedded JSON"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    const updated = await invoke<Node>(
+                      "parse_stringified_json",
+                      {
+                        pointer: node.pointer,
+                      }
+                    );
+                    // Mutate current node fields in place to reflect new structure
+                    (node as any).preview = updated.preview;
+                    (node as any).value_type = updated.value_type;
+                    (node as any).child_count = updated.child_count;
+                    (node as any).has_children = updated.has_children;
+                    // Automatically expand so user sees parsed contents
+                    if (updated.has_children) {
+                      handleExpand(node.pointer);
+                    }
+                  } catch (err) {
+                    console.error("Failed to parse embedded JSON", err);
+                  }
+                }}
+                style={{ marginLeft: 4 }}
+              >
+                {/* curly braces icon */}
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M8 3H6a2 2 0 0 0-2 2v3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3a2 2 0 0 0 2 2h2" />
+                  <path d="M16 3h2a2 2 0 0 1 2 2v3a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3a2 2 0 0 1-2 2h-2" />
                 </svg>
               </button>
             )}
