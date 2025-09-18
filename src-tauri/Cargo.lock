@@ -83,6 +83,7 @@ dependencies = [
  "percent-encoding",
  "windows-sys 0.60.2",
  "x11rb",
+]
 
 [[package]]
 name = "ashpd"
