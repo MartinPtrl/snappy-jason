@@ -4,7 +4,6 @@ export type { TreeState } from "./treeStore";
 
 // Components
 export { Tree } from "./Tree";
-export { MultiFileTree } from "./MultiFileTree";
 
 // Utilities
 export { getValueAtPointer } from "./treeUtils";
