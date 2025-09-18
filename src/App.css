@@ -285,6 +285,34 @@ body {
   color: var(--text-color);
 }
 
+.file-name-line {
+  margin: 0.25rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.file-name-line:first-child {
+  margin-top: 0;
+}
+
+.file-name-line:last-child {
+  margin-bottom: 0;
+}
+
+.file-status {
+  font-size: 0.875rem;
+  font-weight: normal;
+}
+
+.file-status.loading {
+  color: var(--button-primary-bg);
+}
+
+.file-status.error {
+  color: var(--button-danger-bg);
+}
+
 /* Error message */
 .error-message {
   background: var(--button-danger-bg);
@@ -328,7 +356,6 @@ body {
   gap: 0.5rem;
   margin-bottom: 1rem;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--border-color);
 }
 
 .tree-control-btn {

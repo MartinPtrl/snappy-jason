@@ -6,19 +6,18 @@ import type { Node } from "@shared/types";
 
 export const useFileOperations = () => {
   const {
-    fileName,
-    loading,
-    error,
-    nodes,
-    setFileName,
-    setLoading,
-    setError,
-    setNodes,
-    appendNodes,
-    setParseProgress,
-    clearFile,
-    parseProgress,
+    // Multi-file operations
+    files,
+    addFile,
+    updateFile,
+    removeFile,
+    clearAllFiles,
+    getFileById,
+    findFileByPath,
   } = useFileStore();
+
+  // Track in-flight file loading requests to prevent duplicates
+  const loadingFiles = useRef<Set<string>>(new Set());
 
   // Config operations
   const saveLastOpenedFile = useCallback(async (filePath: string) => {
@@ -39,87 +38,90 @@ export const useFileOperations = () => {
     }
   }, []);
 
-  // File operations
-  const latestRequestIdRef = useRef(0);
-  // Separate in-flight flag for pagination to avoid blocking when initial file load finished
-  const loadingMoreRef = useRef(false);
-
-  const loadFile = useCallback(
+  // Multi-file operations
+  const loadFileMulti = useCallback(
     async (
       path: string,
       options?: {
-        onSuccess?: (nodes: Node[]) => void;
-        onError?: (error: string) => void;
+        onSuccess?: (nodes: Node[], fileId: string) => void;
+        onError?: (error: string, fileId: string) => void;
       }
     ) => {
-      setLoading(true);
-      setParseProgress(0);
-      setError("");
-      // Set a provisional filename early so UI can display it during parsing
-      setFileName(path.split("/").pop() || path);
+      console.log(`🔄 loadFileMulti called with path: ${path}`);
+      console.log(`📁 Current files:`, files.map(f => ({ id: f.id, path: f.fullPath })));
+      
+      // Normalize path for consistent comparison
+      const normalizedPath = path.replace(/\\/g, '/').toLowerCase();
+      
+      // Check if this file is already being loaded
+      if (loadingFiles.current.has(normalizedPath)) {
+        console.log(`⏳ ALREADY LOADING: File is already being loaded: ${path}`);
+        return Promise.resolve(""); // Return empty string for in-flight request
+      }
+      
+      // Check if file with this path already exists using store method
+      const existingFile = findFileByPath(path);
+      if (existingFile) {
+        console.log(`❌ DUPLICATE DETECTED: File already loaded: ${path} (ID: ${existingFile.id})`);
+        console.log(`Existing path: ${existingFile.fullPath}, New path: ${path}`);
+        // Return the existing file ID and call success callback
+        options?.onSuccess?.(existingFile.nodes, existingFile.id);
+        return existingFile.id;
+      }
 
-      const currentId = ++latestRequestIdRef.current;
+      console.log(`✅ NEW FILE: Adding new file: ${path}`);
+      
+      // Mark this file as being loaded
+      loadingFiles.current.add(normalizedPath);
 
-      // Listen for progress events specific to this path
+      const fileId = addFile({
+        fileName: path.split("/").pop() || path,
+        fullPath: path,
+        nodes: [],
+        loading: true,
+        error: "",
+        parseProgress: 0,
+      });
+
+      // Listen for progress events specific to this file
       const unlistenPromise = listen("parse_progress", (event) => {
         const payload: any = event.payload;
         if (!payload || typeof payload !== "object") return;
-        if (payload.path !== path) return; // ignore other files' progress
-        if (latestRequestIdRef.current !== currentId) return; // stale request
+        if (payload.fileId !== fileId) return; // ignore other files' progress
         if (payload.canceled) {
-          // Let cancel handler manage state; just ignore further updates
           return;
         }
         if (typeof payload.percent === "number") {
-          setParseProgress(payload.percent);
+          updateFile(fileId, { parseProgress: payload.percent });
         }
       });
 
       try {
-        const result = await invoke<Node[]>("open_file", { path });
-
-        // Ignore stale results if a newer request started during await
-        if (latestRequestIdRef.current !== currentId) {
-          console.warn("Ignored stale file load result for", path);
-          return;
-        }
-
-        setNodes(result);
-        setFileName(path.split("/").pop() || path);
-        await saveLastOpenedFile(path);
-        options?.onSuccess?.(result);
+        const result = await invoke<Node[]>("open_file_multi", { path, fileId });
+        
+        updateFile(fileId, {
+          nodes: result,
+          loading: false,
+          fileName: path.split("/").pop() || path,
+        });
+        
+        options?.onSuccess?.(result, fileId);
+        return fileId;
       } catch (error) {
-        if (latestRequestIdRef.current !== currentId) {
-          return; // error from stale request; silently drop
-        }
-        console.error("Failed to load file:", error);
-        const errorMessage = `Failed to load file: ${error}`;
-        setError(errorMessage);
-        setNodes([]);
-        setFileName("");
-        options?.onError?.(errorMessage);
-      }
-      // Finally section outside catch for shared cleanup
-      if (latestRequestIdRef.current === currentId) {
-        // If parse finished naturally and not canceled, ensure progress shows 100
-        if (parseProgress < 100) {
-          setParseProgress(100);
-        }
-        // Delay clearing loading very slightly to allow bar to visually reach 100%
-        setTimeout(() => {
-          if (latestRequestIdRef.current === currentId) {
-            setLoading(false);
-          }
-        }, 120);
-      }
-      try {
+        updateFile(fileId, {
+          error: error as string,
+          loading: false,
+        });
+        options?.onError?.(error as string, fileId);
+        throw error;
+      } finally {
         const unlisten = await unlistenPromise;
         unlisten();
-      } catch (_) {
-        /* ignore */
+        // Remove from loading set when done
+        loadingFiles.current.delete(normalizedPath);
       }
     },
-    []
+    [findFileByPath, addFile, updateFile, loadingFiles]
   );
 
   const loadLastOpenedFile = useCallback(
@@ -131,92 +133,94 @@ export const useFileOperations = () => {
         const filePath = await invoke<string>("load_last_opened_file");
         console.log("📂 Loaded last opened file from config:", filePath);
         if (filePath) {
-          loadFile(filePath, options);
+          // Use multi-file system instead of legacy loadFile
+          await loadFileMulti(filePath, {
+            onSuccess: (nodes: Node[], fileId: string) => {
+              console.log(`Last opened file loaded with ID: ${fileId}`);
+              options?.onSuccess?.(nodes);
+            },
+            onError: (error: string, _fileId: string) => {
+              console.error("Last opened file load error:", error);
+              options?.onError?.(error);
+            },
+          });
         }
       } catch (error) {
         console.log("No last opened file found or error:", error);
       }
     },
-    []
+    [loadFileMulti]
   );
 
-  const unloadFile = useCallback(
-    async (onComplete?: () => void) => {
-      clearFile();
-
-      // Clear the saved file path from config file
-      await clearLastOpenedFile();
-
-      // Call completion callback for additional cleanup
-      onComplete?.();
-    },
-    [clearFile]
-  );
-
-  // Cancel current loading/parsing
-  const cancelLoad = useCallback(async () => {
-    try {
-      await invoke("cancel_parse");
-    } catch (e) {
-      console.warn("cancel_parse failed or unavailable:", e);
-    }
-    // Invalidate the in-flight request so its eventual result/error is ignored
-    latestRequestIdRef.current++;
-    // Reset UI state; do not persist last opened file on cancel
-    setLoading(false);
-    setParseProgress(0);
-    setError("");
-    setNodes([]);
-    setFileName("");
-  }, []);
-
-  // Load more nodes for pagination (root level)
-  const loadMoreNodes = useCallback(
-    async (offset: number = 0, limit: number = 100): Promise<Node[]> => {
-      if (loadingMoreRef.current) {
-        return [];
-      }
-      loadingMoreRef.current = true;
+  const removeFileMulti = useCallback(
+    async (fileId: string) => {
       try {
-        const result = await invoke<Node[]>("load_children", {
+        // Get the file info before removing to clear from loading set
+        const fileData = getFileById(fileId);
+        if (fileData) {
+          const normalizedPath = fileData.fullPath.replace(/\\/g, '/').toLowerCase();
+          loadingFiles.current.delete(normalizedPath);
+          console.log(`🗑️ Removed file from loading tracking: ${normalizedPath}`);
+        }
+        
+        await invoke("remove_file_multi", { fileId });
+        removeFile(fileId);
+      } catch (error) {
+        console.error("Failed to remove file:", error);
+      }
+    },
+    [removeFile, getFileById, loadingFiles]
+  );
+
+  const loadMoreNodesMulti = useCallback(
+    async (fileId: string, offset: number = 0, limit: number = 100): Promise<Node[]> => {
+      try {
+        const result = await invoke<Node[]>("load_children_multi", {
+          fileId,
           pointer: "",
           offset,
           limit,
         });
+        
         if (offset === 0) {
-          setNodes(result);
+          updateFile(fileId, { nodes: result });
         } else if (result.length) {
-          appendNodes(result);
+          const fileData = getFileById(fileId);
+          if (fileData) {
+            updateFile(fileId, { nodes: [...fileData.nodes, ...result] });
+          }
         }
         return result;
       } catch (error) {
-        const errorMessage = `Failed to load more nodes at offset ${offset}: ${error}`;
+        const errorMessage = `Failed to load more nodes for file ${fileId} at offset ${offset}: ${error}`;
         console.error(errorMessage);
-        setError(errorMessage);
+        const fileData = getFileById(fileId);
+        if (fileData) {
+          updateFile(fileId, { error: errorMessage });
+        }
         return [];
-      } finally {
-        loadingMoreRef.current = false;
       }
     },
-    [setNodes, appendNodes, setError]
+    [updateFile, getFileById]
   );
 
   return {
-    // State
-    fileName,
-    loading,
-    error,
-    nodes,
-    // progress
-    // (Consumers can show an indeterminate bar if still 0 after e.g. 300ms, until first event arrives.)
-    parseProgress,
+    // Multi-file state
+    files,
 
-    // Actions
-    loadFile,
+    // Multi-file operations
+    loadFileMulti,
     loadLastOpenedFile,
-    unloadFile,
-    cancelLoad,
-    loadMoreNodes,
+    removeFileMulti,
+    loadMoreNodesMulti,
+    clearAllFiles: () => {
+      // Clear the store
+      clearAllFiles();
+      // Also clear the loading files tracking
+      loadingFiles.current.clear();
+      console.log("🗑️ Cleared all files and loading tracking");
+    },
+    getFileById,
 
     // Config operations (exposed for advanced usage)
     saveLastOpenedFile,

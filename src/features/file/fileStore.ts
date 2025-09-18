@@ -1,46 +1,69 @@
 import { create } from "zustand";
 import type { Node } from "@shared/types";
 
-export interface FileState {
-  // State
+export interface FileData {
+  id: string; // unique identifier for the file
   fileName: string;
+  fullPath: string;
+  nodes: Node[];
   loading: boolean;
   error: string;
-  nodes: Node[];
-  parseProgress: number; // 0-100 percentage of current parse (NaN/undefined if unknown)
-
-  // Actions
-  setFileName: (fileName: string) => void;
-  setLoading: (loading: boolean) => void;
-  setError: (error: string) => void;
-  setNodes: (nodes: Node[]) => void;
-  appendNodes: (nodes: Node[]) => void;
-  setParseProgress: (progress: number) => void;
-  clearFile: () => void;
+  parseProgress: number;
 }
 
-export const useFileStore = create<FileState>((set) => ({
-  // Initial state
-  fileName: "",
-  loading: false,
-  error: "",
-  nodes: [],
-  parseProgress: 0,
-
+export interface FileState {
+  // State
+  files: FileData[];
+  
   // Actions
-  setFileName: (fileName) => set({ fileName }),
-  setLoading: (loading) => set({ loading }),
-  setError: (error) => set({ error }),
-  setNodes: (nodes) => set({ nodes }),
-  appendNodes: (newNodes) =>
-    set((state) => ({ nodes: [...state.nodes, ...newNodes] })),
-  setParseProgress: (progress) => set({ parseProgress: progress }),
-  clearFile: () =>
-    set({
-      fileName: "",
-      loading: false,
-      error: "",
-      nodes: [],
-      parseProgress: 0,
-    }),
+  addFile: (fileData: Omit<FileData, 'id'>) => string; // returns the file ID
+  updateFile: (id: string, updates: Partial<FileData>) => void;
+  removeFile: (id: string) => void;
+  clearAllFiles: () => void;
+  getFileById: (id: string) => FileData | undefined;
+  findFileByPath: (path: string) => FileData | undefined; // helper to find by path
+}
+
+export const useFileStore = create<FileState>((set, get) => ({
+  // Initial state
+  files: [],
+
+  // Multi-file actions
+  addFile: (fileData) => {
+    const id = crypto.randomUUID();
+    const newFile: FileData = { ...fileData, id };
+    set((state) => ({
+      files: [...state.files, newFile],
+    }));
+    return id;
+  },
+
+  updateFile: (id, updates) => {
+    set((state) => ({
+      files: state.files.map(file => 
+        file.id === id ? { ...file, ...updates } : file
+      ),
+    }));
+  },
+
+  removeFile: (id) => {
+    set((state) => ({
+      files: state.files.filter(file => file.id !== id),
+    }));
+  },
+
+  clearAllFiles: () => {
+    set({ files: [] });
+  },
+
+  getFileById: (id) => {
+    return get().files.find(file => file.id === id);
+  },
+
+  findFileByPath: (path) => {
+    const normalizedPath = path.replace(/\\/g, '/').toLowerCase();
+    return get().files.find(file => 
+      file.fullPath.replace(/\\/g, '/').toLowerCase() === normalizedPath
+    );
+  },
 }));
