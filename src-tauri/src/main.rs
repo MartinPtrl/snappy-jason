@@ -9,8 +9,13 @@ use tauri::{Manager, async_runtime::spawn_blocking, Emitter};
 
 fn to_node_with_truncation(parent_ptr: &str, key: Option<&str>, v: &Value, truncate_limit: Option<usize>) -> Node {
     let (value_type, has_children, child_count, preview) = match v {
-        Value::Object(m) => ("object".into(), !m.is_empty(), m.len(), format!("{{…}} {} keys", m.len())),
-        Value::Array(a) => ("array".into(), !a.is_empty(), a.len(), format!("[…] {} items", a.len())),
+        Value::Object(m) => (
+            "object".into(),
+            !m.is_empty(),
+            m.len(),
+            if m.is_empty() { format!("{{}} {} keys", m.len()) } else { format!("{{…}} {} keys", m.len()) }
+        ),
+    Value::Array(a) => ("array".into(), !a.is_empty(), a.len(), if a.is_empty() { format!("[] {} items", a.len()) } else { format!("[…] {} items", a.len()) }),
         Value::String(s) => ("string".into(), false, 0, 
             if let Some(limit) = truncate_limit {
                 truncate(s, limit)
@@ -489,8 +494,13 @@ fn search_recursive(
 
 fn create_node_for_path(value: &Value, pointer: &str) -> Node {
     let (value_type, has_children, child_count, preview) = match value {
-        Value::Object(m) => ("object".into(), !m.is_empty(), m.len(), format!("{{…}} {} keys", m.len())),
-        Value::Array(a) => ("array".into(), !a.is_empty(), a.len(), format!("[…] {} items", a.len())),
+        Value::Object(m) => (
+            "object".into(),
+            !m.is_empty(),
+            m.len(),
+            if m.is_empty() { format!("{{}} {} keys", m.len()) } else { format!("{{…}} {} keys", m.len()) }
+        ),
+    Value::Array(a) => ("array".into(), !a.is_empty(), a.len(), if a.is_empty() { format!("[] {} items", a.len()) } else { format!("[…] {} items", a.len()) }),
         Value::String(s) => ("string".into(), false, 0, truncate(s, 120)),
         Value::Number(n) => ("number".into(), false, 0, n.to_string()),
         Value::Bool(b) => ("boolean".into(), false, 0, b.to_string()),
