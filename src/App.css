@@ -19,6 +19,8 @@ body[data-theme="dark"] {
   --background-color-secondary: #34495e;
   --text-color: #ecf0f1;
   --border-color: #4a627a;
+  /* Tree vertical guideline color (dark mode keeps subtler tone) */
+  --tree-line-color: #4a627a;
   --hover-background-color: #4a627a;
   --opposite-hover-background-color: #e9ecef;
   --hover-background-color-transparent: rgba(74, 98, 122, 0.5);
@@ -50,6 +52,8 @@ body[data-theme="light"] {
   --background-color-secondary: #f8f9fa;
   --text-color: #2c3e50;
   --border-color: #dee2e6;
+  /* Higher contrast tree vertical guideline for light mode */
+  --tree-line-color: #b0b7be; /* slightly darker than #dee2e6 for visibility */
   --hover-background-color: #e9ecef;
   --opposite-hover-background-color: #4a627a;
   --hover-background-color-transparent: rgba(233, 236, 239, 0.5);
@@ -470,8 +474,7 @@ body {
 }
 
 .node-children {
-  border-left: 1px solid var(--border-color);
-  margin-left: 0.5rem;
+  border-left: 1px solid var(--tree-line-color);
 }
 
 /* Loading state */

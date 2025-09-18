@@ -336,7 +336,7 @@ export function Tree({
     <div className="tree-node">
       <div
         className={`node-header ${hasChildren ? "expandable" : ""}`}
-        style={{ paddingLeft: `${level * 20}px` }}
+        style={{ paddingLeft: "16px" }}
         onClick={handleToggle}
       >
         <span className="expand-icon">{getIcon}</span>
@@ -406,7 +406,7 @@ export function Tree({
         </span>
       </div>
       {isExpanded && (
-        <div className="node-children">
+        <div className="node-children" style={{ marginLeft: "20px" }}>
           {children.map((child, index) => (
             <Tree
               key={`${child.pointer}-${index}`}
@@ -423,7 +423,6 @@ export function Tree({
               className="infinite-scroll-trigger"
               style={{
                 height: "1px",
-                paddingLeft: `${(level + 1) * 20}px`,
                 opacity: 0.5,
               }}
             >

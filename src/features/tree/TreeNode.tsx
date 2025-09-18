@@ -35,7 +35,6 @@ export function TreeNode({
     <div className="tree-node">
       <div
         className={`node-header ${hasChildren ? "expandable" : ""}`}
-        style={{ paddingLeft: `${level * 20}px` }}
         onClick={handleToggle}
       >
         <span className="expand-icon">{getIcon()}</span>
@@ -69,7 +68,6 @@ export function TreeNode({
               className="infinite-scroll-trigger"
               style={{
                 height: "1px",
-                paddingLeft: `${(level + 1) * 20}px`,
                 opacity: 0.5,
               }}
             >
