@@ -46,15 +46,13 @@ impl<R: Read> Read for ProgressReader<R> {
 
 #[tauri::command]
 pub async fn open_file(path: String, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Vec<Node>, String> {
-    let path_clone = path.clone();
-    let handle_clone = app_handle.clone();
     // obtain a cancellation flag clone to share with background thread
     let cancel_flag = state.cancel_parse.clone();
     // reset cancel flag at the beginning of a new parse
     cancel_flag.store(false, std::sync::atomic::Ordering::SeqCst);
     
     let root: Value = spawn_blocking(move || {
-        let f = File::open(&path_clone).map_err(|e| e.to_string())?;
+        let f = File::open(&path).map_err(|e| e.to_string())?;
         let metadata = f.metadata().ok();
         let total_bytes = metadata.map(|m| m.len()).unwrap_or(0);
 
@@ -63,8 +61,8 @@ pub async fn open_file(path: String, state: tauri::State<'_, AppState>, app_hand
             read_bytes: 0,
             total_bytes,
             last_emit: 0,
-            app_handle: handle_clone,
-            path: path_clone,
+            app_handle: app_handle,
+            path: path,
             cancel: cancel_flag,
         };
         let reader = BufReader::new(progress_reader);
@@ -127,8 +125,6 @@ pub async fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<String>, S
         });
     
     // Wait for the dialog result
-    match rx.await {
-        Ok(result) => Ok(result),
-        Err(_) => Err("Dialog was cancelled or failed".to_string()),
-    }
+    rx.await
+        .map_err(|_| "Dialog was cancelled or failed".to_string())
 }
