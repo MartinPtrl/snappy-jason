@@ -52,7 +52,7 @@ fn get_node_properties(value: &Value) -> NodeProperties {
                 format!("[…] {} items", a.len()) 
             }
         ),
-        Value::String(s) => NodeProperties(ValueType::String, 0, truncate(s, 120)),
+        Value::String(s) => NodeProperties(ValueType::String, 0, truncate(s, 80)),
         Value::Number(n) => NodeProperties(ValueType::Number, 0, n.to_string()),
         Value::Bool(b) => NodeProperties(ValueType::Boolean, 0, b.to_string()),
         Value::Null => NodeProperties(ValueType::Null, 0, "null".into()),

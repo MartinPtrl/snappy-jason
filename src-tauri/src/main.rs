@@ -11,7 +11,7 @@ use crate::types::common::AppState;
 
 // Import command functions from modules
 use commands::file::{open_file, open_clipboard, cancel_parse, load_children, open_file_dialog};
-use commands::search::{search, search_stream};
+use commands::search::search;
 use commands::node::{get_node_value, copy_node_value, set_node_value, set_subtree, parse_stringified_json};
 use commands::config::{save_last_opened_file, load_last_opened_file, clear_last_opened_file};
 
@@ -24,7 +24,6 @@ pub fn main() {
             open_file, 
             load_children, 
             search,
-            search_stream,
             cancel_parse,
             save_last_opened_file,
             load_last_opened_file,
