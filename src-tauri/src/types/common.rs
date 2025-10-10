@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::sync::{Arc, atomic::{AtomicBool, AtomicU64}};
 
 pub struct AppState {
-  pub doc: RwLock<Option<Arc<Value>>>,
+    pub doc: RwLock<Option<Arc<Value>>>,
     pub cancel_parse: Arc<AtomicBool>,
     pub active_search_id: AtomicU64,
 }

@@ -1,48 +1,10 @@
-use std::{fs::File, io::{BufReader, Read}, sync::Arc};
+use std::{fs::File, io::{BufReader}, sync::Arc};
 use serde_json::Value;
-use tauri::{async_runtime::spawn_blocking, Emitter};
-use crate::state::AppState;
-use crate::types::Node;
-use crate::tree::list_children;
+use tauri::{async_runtime::spawn_blocking};
+use crate::types::common::AppState;
+use crate::types::{types::Node, progress_reader::ProgressReader};
+use crate::utils::tree::list_children;
 
-// Progress reader for tracking file loading progress
-struct ProgressReader<R: Read> {
-    inner: R,
-    read_bytes: u64,
-    total_bytes: u64,
-    last_emit: u64,
-    app_handle: tauri::AppHandle,
-    path: String,
-    cancel: Arc<std::sync::atomic::AtomicBool>,
-}
-
-impl<R: Read> Read for ProgressReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        // if canceled, stop reading
-        if self.cancel.load(std::sync::atomic::Ordering::SeqCst) {
-            return Ok(0);
-        }
-        let n = self.inner.read(buf)?;
-        self.read_bytes += n as u64;
-        if self.read_bytes - self.last_emit >= 1024 * 1024 || n == 0 {
-            let percent = if self.total_bytes > 0 { 
-                self.read_bytes as f64 / self.total_bytes as f64 * 100.0 
-            } else { 
-                0.0 
-            };
-            let _ = self.app_handle.emit("parse_progress", serde_json::json!({
-                "path": self.path,
-                "readBytes": self.read_bytes,
-                "totalBytes": self.total_bytes,
-                "percent": percent,
-                "done": n == 0,
-                "canceled": self.cancel.load(std::sync::atomic::Ordering::SeqCst),
-            }));
-            self.last_emit = self.read_bytes;
-        }
-        Ok(n)
-    }
-}
 
 #[tauri::command]
 pub async fn open_file(path: String, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Vec<Node>, String> {
@@ -51,7 +13,7 @@ pub async fn open_file(path: String, state: tauri::State<'_, AppState>, app_hand
     // reset cancel flag at the beginning of a new parse
     cancel_flag.store(false, std::sync::atomic::Ordering::SeqCst);
     
-    let root: Value = spawn_blocking(move || {
+    let root = spawn_blocking(move || {
         let f = File::open(&path).map_err(|e| e.to_string())?;
         let metadata = f.metadata().ok();
         let total_bytes = metadata.map(|m| m.len()).unwrap_or(0);
@@ -72,7 +34,7 @@ pub async fn open_file(path: String, state: tauri::State<'_, AppState>, app_hand
     .map_err(|e| format!("Join error: {e}"))??;
 
     let arc = Arc::new(root);
-    let top = list_children(&arc, "", 0, 100);
+    let top = list_children(&arc, &String::new(), 0, 100);
     *state.doc.write() = Some(arc);
     Ok(top)
 }
@@ -89,7 +51,7 @@ pub fn open_clipboard(state: tauri::State<'_, AppState>) -> Result<Vec<Node>, St
     let root: Value = serde_json::from_str(&text)
         .map_err(|e| format!("Clipboard does not contain valid JSON: {e}"))?;
     let arc = Arc::new(root);
-    let top = list_children(&arc, "", 0, 100);
+    let top = list_children(&arc, &String::new(), 0, 100);
     *state.doc.write() = Some(arc);
     Ok(top)
 }
@@ -103,7 +65,7 @@ pub fn cancel_parse(state: tauri::State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 pub fn load_children(pointer: String, offset: usize, limit: usize, state: tauri::State<'_, AppState>) -> Result<Vec<Node>, String> {
     let guard = state.doc.read();
-    let Some(root) = &*guard else { return Err("No document loaded".into()); };
+    let root = guard.as_ref().ok_or("No document loaded")?;
     Ok(list_children(root, &pointer, offset, limit))
 }
 

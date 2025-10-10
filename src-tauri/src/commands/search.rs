@@ -1,8 +1,7 @@
 use serde_json::Value;
 use tauri::{async_runtime::spawn_blocking, Emitter};
-use crate::state::AppState;
-use crate::types::{SearchResult, SearchResponse};
-use crate::tree::{text_matches, to_node_with_truncation, create_node_for_path, escape_pointer_token};
+use crate::types::{common::AppState, types::{MatchType, SearchResponse, SearchResult}};
+use crate::utils::tree::{text_matches, to_node_with_truncation, create_node_for_path, escape_pointer_token};
 
 #[tauri::command]
 pub async fn search(
@@ -20,7 +19,7 @@ pub async fn search(
     // Limit scope of read guard so it's dropped before await (RwLock guard is not Send)
     let root_arc = {
         let guard = state.doc.read();
-        let Some(root) = &*guard else { return Err("No document loaded".into()); };
+        let root = guard.as_ref().ok_or("No document loaded")?;
         root.clone()
     }; // guard dropped here
 
@@ -43,7 +42,7 @@ pub async fn search(
         let mut collected = Vec::new();
         search_recursive(
             &root_arc,
-            "",
+            &String::new(),
             &search_query_owned,
             re.as_ref(),
             search_keys_flag,
@@ -87,13 +86,12 @@ pub async fn search_stream(
 ) -> Result<u64, String> {
     let root_arc = {
         let guard = state.doc.read();
-        let Some(root) = &*guard else { return Err("No document loaded".into()); };
+        let root = guard.as_ref().ok_or("No document loaded")?;
         root.clone()
     };
     if query.trim().is_empty() { return Err("Empty query".into()); }
 
-    let case_sensitive_flag = case_sensitive;
-    let query_norm = if case_sensitive_flag { query.clone() } else { query.to_lowercase() };
+    let query_norm = if case_sensitive { query.clone() } else { query.to_lowercase() };
     let re_opt = if regex { regex::Regex::new(&query).ok() } else { None };
     let batch_size: usize = 10; // default batch size
 
@@ -109,7 +107,7 @@ pub async fn search_stream(
         while let Some((value, pointer)) = stack.pop() {
             // path match
             if search_paths {
-                let path_check = if case_sensitive_flag { pointer.clone() } else { pointer.to_lowercase() };
+                let path_check = if case_sensitive { pointer.clone() } else { pointer.to_lowercase() };
                 let path_match = if let Some(re) = &re_opt { 
                     re.is_match(&path_check) 
                 } else if whole_word { 
@@ -120,7 +118,7 @@ pub async fn search_stream(
                 if path_match {
                     batch.push(SearchResult {
                         node: create_node_for_path(value, &pointer),
-                        match_type: "path".into(),
+                        match_type: MatchType::Path,
                         match_text: pointer.clone(),
                         context: None,
                     });
@@ -130,7 +128,7 @@ pub async fn search_stream(
                 Value::Object(map) => {
                     for (k, v) in map.iter() {
                         if search_keys {
-                            let key_check = if case_sensitive_flag { k.to_string() } else { k.to_lowercase() };
+                            let key_check = if case_sensitive { k.to_string() } else { k.to_lowercase() };
                             let key_match = if let Some(re) = &re_opt { 
                                 re.is_match(&key_check) 
                             } else if whole_word { 
@@ -140,8 +138,8 @@ pub async fn search_stream(
                             };
                             if key_match {
                                 batch.push(SearchResult {
-                                    node: to_node_with_truncation(&pointer, Some(k), v, None),
-                                    match_type: "key".into(),
+                                    node: to_node_with_truncation(&pointer, k, v),
+                                    match_type: MatchType::Key,
                                     match_text: k.clone(),
                                     context: None,
                                 });
@@ -150,7 +148,7 @@ pub async fn search_stream(
                         if search_values {
                             match v {
                                 Value::String(s) => {
-                                    let check = if case_sensitive_flag { s.clone() } else { s.to_lowercase() };
+                                    let check = if case_sensitive { s.clone() } else { s.to_lowercase() };
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -160,8 +158,8 @@ pub async fn search_stream(
                                     };
                                     if is_match {
                                         batch.push(SearchResult { 
-                                            node: to_node_with_truncation(&pointer, Some(k), v, None), 
-                                            match_type: "value".into(), 
+                                            node: to_node_with_truncation(&pointer, k, v), 
+                                            match_type: MatchType::Value, 
                                             match_text: s.clone(), 
                                             context: Some(format!("in key: {}", k)) 
                                         });
@@ -169,7 +167,7 @@ pub async fn search_stream(
                                 }
                                 Value::Number(n) => {
                                     let num_str = n.to_string();
-                                    let check = if case_sensitive_flag { num_str.clone() } else { num_str.to_lowercase() };
+                                    let check = if case_sensitive { num_str.clone() } else { num_str.to_lowercase() };
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -179,8 +177,8 @@ pub async fn search_stream(
                                     };
                                     if is_match { 
                                         batch.push(SearchResult { 
-                                            node: to_node_with_truncation(&pointer, Some(k), v, None), 
-                                            match_type: "value".into(), 
+                                            node: to_node_with_truncation(&pointer, k, v), 
+                                            match_type: MatchType::Value, 
                                             match_text: num_str, 
                                             context: Some(format!("in key: {}", k)) 
                                         }); 
@@ -188,7 +186,7 @@ pub async fn search_stream(
                                 }
                                 Value::Bool(b) => {
                                     let bool_str = b.to_string();
-                                    let check = if case_sensitive_flag { bool_str.clone() } else { bool_str.to_lowercase() };
+                                    let check = if case_sensitive { bool_str.clone() } else { bool_str.to_lowercase() };
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -198,8 +196,8 @@ pub async fn search_stream(
                                     };
                                     if is_match { 
                                         batch.push(SearchResult { 
-                                            node: to_node_with_truncation(&pointer, Some(k), v, None), 
-                                            match_type: "value".into(), 
+                                            node: to_node_with_truncation(&pointer, k, v), 
+                                            match_type: MatchType::Value, 
                                             match_text: bool_str, 
                                             context: Some(format!("in key: {}", k)) 
                                         }); 
@@ -233,7 +231,7 @@ pub async fn search_stream(
                         if search_values {
                             match item {
                                 Value::String(s) => {
-                                    let check = if case_sensitive_flag { s.clone() } else { s.to_lowercase() };
+                                    let check = if case_sensitive { s.clone() } else { s.to_lowercase() };
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -243,8 +241,8 @@ pub async fn search_stream(
                                     };
                                     if is_match { 
                                         batch.push(SearchResult { 
-                                            node: to_node_with_truncation(&pointer, Some(&idx.to_string()), item, None), 
-                                            match_type: "value".into(), 
+                                            node: to_node_with_truncation(&pointer, &idx.to_string(), item), 
+                                            match_type: MatchType::Value, 
                                             match_text: s.clone(), 
                                             context: Some(format!("in index: {}", idx)) 
                                         }); 
@@ -252,7 +250,7 @@ pub async fn search_stream(
                                 }
                                 Value::Number(n) => {
                                     let num_str = n.to_string();
-                                    let check = if case_sensitive_flag { num_str.clone() } else { num_str.to_lowercase() };
+                                    let check = if case_sensitive { num_str.clone() } else { num_str.to_lowercase() };
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -262,8 +260,8 @@ pub async fn search_stream(
                                     };
                                     if is_match { 
                                         batch.push(SearchResult { 
-                                            node: to_node_with_truncation(&pointer, Some(&idx.to_string()), item, None), 
-                                            match_type: "value".into(), 
+                                            node: to_node_with_truncation(&pointer, &idx.to_string(), item), 
+                                            match_type: MatchType::Value, 
                                             match_text: num_str, 
                                             context: Some(format!("in index: {}", idx)) 
                                         }); 
@@ -271,7 +269,7 @@ pub async fn search_stream(
                                 }
                                 Value::Bool(b) => {
                                     let bool_str = b.to_string();
-                                    let check = if case_sensitive_flag { bool_str.clone() } else { bool_str.to_lowercase() };
+                                    let check = if case_sensitive { bool_str.clone() } else { bool_str.to_lowercase() };
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -281,8 +279,8 @@ pub async fn search_stream(
                                     };
                                     if is_match { 
                                         batch.push(SearchResult { 
-                                            node: to_node_with_truncation(&pointer, Some(&idx.to_string()), item, None), 
-                                            match_type: "value".into(), 
+                                            node: to_node_with_truncation(&pointer, &idx.to_string(), item), 
+                                            match_type: MatchType::Value, 
                                             match_text: bool_str, 
                                             context: Some(format!("in index: {}", idx)) 
                                         }); 
@@ -331,7 +329,7 @@ pub async fn search_stream(
 
 pub fn search_recursive(
     value: &Value,
-    current_pointer: &str,
+    current_pointer: &String,
     query: &str,
     re: Option<&regex::Regex>,
     search_keys: bool,
@@ -353,7 +351,7 @@ pub fn search_recursive(
             let node = create_node_for_path(value, current_pointer);
             results.push(SearchResult {
                 node,
-                match_type: "path".to_string(),
+                match_type: MatchType::Path,
                 match_text: current_pointer.to_string(),
                 context: None,
             });
@@ -378,10 +376,10 @@ pub fn search_recursive(
                     };
                     let matches = text_matches(&key_to_check, query, re, whole_word);
                     if matches {
-                        let node = to_node_with_truncation(current_pointer, Some(key), val, None);
+                        let node = to_node_with_truncation(current_pointer, key, val);
                         results.push(SearchResult {
                             node,
-                            match_type: "key".to_string(),
+                            match_type: MatchType::Key,
                             match_text: key.clone(),
                             context: None,
                         });
@@ -399,10 +397,10 @@ pub fn search_recursive(
                             };
                             let matches = text_matches(&value_to_check, query, re, whole_word);
                             if matches {
-                                let node = to_node_with_truncation(current_pointer, Some(key), val, None);
+                                let node = to_node_with_truncation(current_pointer, key, val);
                                 results.push(SearchResult {
                                     node,
-                                    match_type: "value".to_string(),
+                                    match_type: MatchType::Value,
                                     match_text: s.clone(),
                                     context: Some(format!("in key: {}", key)),
                                 });
@@ -417,10 +415,10 @@ pub fn search_recursive(
                             };
                             let matches = text_matches(&value_to_check, query, re, whole_word);
                             if matches {
-                                let node = to_node_with_truncation(current_pointer, Some(key), val, None);
+                                let node = to_node_with_truncation(current_pointer, key, val);
                                 results.push(SearchResult {
                                     node,
-                                    match_type: "value".to_string(),
+                                    match_type: MatchType::Value,
                                     match_text: num_str,
                                     context: Some(format!("in key: {}", key)),
                                 });
@@ -435,10 +433,10 @@ pub fn search_recursive(
                             };
                             let matches = text_matches(&value_to_check, query, re, whole_word);
                             if matches {
-                                let node = to_node_with_truncation(current_pointer, Some(key), val, None);
+                                let node = to_node_with_truncation(current_pointer, key, val);
                                 results.push(SearchResult {
                                     node,
-                                    match_type: "value".to_string(),
+                                    match_type: MatchType::Value,
                                     match_text: bool_str,
                                     context: Some(format!("in key: {}", key)),
                                 });
