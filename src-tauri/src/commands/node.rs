@@ -84,7 +84,7 @@ fn parse_json_number(new_value: &String) -> Result<serde_json::Number, String> {
     let try_parse_f64 = 
         || trimmed.parse::<f64>()
             .ok()
-            .map(serde_json::Number::from_f64);
+            .and_then(serde_json::Number::from_f64);
 
 
     try_parse_i64()
