@@ -27,29 +27,22 @@ pub async fn search(
         return Ok(SearchResponse { results: vec![], total_count: 0, has_more: false });
     }
 
-    let search_query_owned = if case_sensitive { query.clone() } else { query.to_lowercase() };
-    let regex_enable = regex;
-    let whole_word_flag = whole_word;
-    let case_sensitive_flag = case_sensitive;
-    let search_keys_flag = search_keys;
-    let search_values_flag = search_values;
-    let search_paths_flag = search_paths;
-    let query_clone_for_regex = query.clone();
+    let search_query_owned = check_case_sensitivity(&query, case_sensitive);
 
     // Offload CPU intensive traversal
     let (all_results, total_count) = spawn_blocking(move || {
-        let re = if regex_enable { regex::Regex::new(&query_clone_for_regex).ok() } else { None };
+        let re = if regex { regex::Regex::new(&query).ok() } else { None };
         let mut collected = Vec::new();
         search_recursive(
             &root_arc,
             &String::new(),
             &search_query_owned,
             re.as_ref(),
-            search_keys_flag,
-            search_values_flag,
-            search_paths_flag,
-            case_sensitive_flag,
-            whole_word_flag,
+            search_keys,
+            search_values,
+            search_paths,
+            case_sensitive,
+            whole_word,
             &mut collected,
         );
         let total = collected.len();
@@ -91,7 +84,7 @@ pub async fn search_stream(
     };
     if query.trim().is_empty() { return Err("Empty query".into()); }
 
-    let query_norm = if case_sensitive { query.clone() } else { query.to_lowercase() };
+    let query_norm = check_case_sensitivity(&query, case_sensitive);
     let re_opt = if regex { regex::Regex::new(&query).ok() } else { None };
     let batch_size: usize = 10; // default batch size
 
@@ -107,7 +100,7 @@ pub async fn search_stream(
         while let Some((value, pointer)) = stack.pop() {
             // path match
             if search_paths {
-                let path_check = if case_sensitive { pointer.clone() } else { pointer.to_lowercase() };
+                let path_check = check_case_sensitivity(&pointer, case_sensitive);
                 let path_match = if let Some(re) = &re_opt { 
                     re.is_match(&path_check) 
                 } else if whole_word { 
@@ -128,7 +121,7 @@ pub async fn search_stream(
                 Value::Object(map) => {
                     for (k, v) in map.iter() {
                         if search_keys {
-                            let key_check = if case_sensitive { k.to_string() } else { k.to_lowercase() };
+                            let key_check = check_case_sensitivity(k, case_sensitive);
                             let key_match = if let Some(re) = &re_opt { 
                                 re.is_match(&key_check) 
                             } else if whole_word { 
@@ -148,7 +141,7 @@ pub async fn search_stream(
                         if search_values {
                             match v {
                                 Value::String(s) => {
-                                    let check = if case_sensitive { s.clone() } else { s.to_lowercase() };
+                                    let check = check_case_sensitivity(s, case_sensitive);
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -167,7 +160,7 @@ pub async fn search_stream(
                                 }
                                 Value::Number(n) => {
                                     let num_str = n.to_string();
-                                    let check = if case_sensitive { num_str.clone() } else { num_str.to_lowercase() };
+                                    let check = check_case_sensitivity(&num_str, case_sensitive);
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -186,7 +179,7 @@ pub async fn search_stream(
                                 }
                                 Value::Bool(b) => {
                                     let bool_str = b.to_string();
-                                    let check = if case_sensitive { bool_str.clone() } else { bool_str.to_lowercase() };
+                                    let check = check_case_sensitivity(&bool_str, case_sensitive);
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -231,7 +224,7 @@ pub async fn search_stream(
                         if search_values {
                             match item {
                                 Value::String(s) => {
-                                    let check = if case_sensitive { s.clone() } else { s.to_lowercase() };
+                                    let check = check_case_sensitivity(s, case_sensitive);
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -250,7 +243,7 @@ pub async fn search_stream(
                                 }
                                 Value::Number(n) => {
                                     let num_str = n.to_string();
-                                    let check = if case_sensitive { num_str.clone() } else { num_str.to_lowercase() };
+                                    let check = check_case_sensitivity(&num_str, case_sensitive);
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -269,7 +262,7 @@ pub async fn search_stream(
                                 }
                                 Value::Bool(b) => {
                                     let bool_str = b.to_string();
-                                    let check = if case_sensitive { bool_str.clone() } else { bool_str.to_lowercase() };
+                                    let check = check_case_sensitivity(&bool_str, case_sensitive);
                                     let is_match = if let Some(re) = &re_opt { 
                                         re.is_match(&check) 
                                     } else if whole_word { 
@@ -327,6 +320,7 @@ pub async fn search_stream(
     Ok(id)
 }
 
+
 pub fn search_recursive(
     value: &Value,
     current_pointer: &String,
@@ -341,130 +335,114 @@ pub fn search_recursive(
 ) {
     // Search in the current path if enabled
     if search_paths {
-        let path_to_check = if case_sensitive { 
-            current_pointer.to_string() 
-        } else { 
-            current_pointer.to_lowercase() 
-        };
-        let matches = text_matches(&path_to_check, query, re, whole_word);
-        if matches {
-            let node = create_node_for_path(value, current_pointer);
-            results.push(SearchResult {
-                node,
-                match_type: MatchType::Path,
-                match_text: current_pointer.to_string(),
-                context: None,
-            });
+        if let Some(result) = search_path(value, current_pointer, case_sensitive, query, re, whole_word) {
+            results.push(result);
         }
     }
 
     match value {
         Value::Object(map) => {
             for (key, val) in map.iter() {
-                let new_pointer = if current_pointer.is_empty() {
-                    format!("/{}", escape_pointer_token(key))
-                } else {
-                    format!("{}/{}", current_pointer, escape_pointer_token(key))
-                };
+                let new_pointer = next_pointer(key, current_pointer);
 
-                // Search in keys if enabled
-                if search_keys {
-                    let key_to_check = if case_sensitive { 
-                        key.to_string() 
-                    } else { 
-                        key.to_lowercase() 
-                    };
-                    let matches = text_matches(&key_to_check, query, re, whole_word);
-                    if matches {
-                        let node = to_node_with_truncation(current_pointer, key, val);
-                        results.push(SearchResult {
-                            node,
-                            match_type: MatchType::Key,
-                            match_text: key.clone(),
-                            context: None,
-                        });
-                    }
-                }
+                match val {
 
-                // Search in values if it's a primitive value
-                if search_values {
-                    match val {
-                        Value::String(s) => {
-                            let value_to_check = if case_sensitive { 
-                                s.clone() 
-                            } else { 
-                                s.to_lowercase() 
-                            };
-                            let matches = text_matches(&value_to_check, query, re, whole_word);
-                            if matches {
-                                let node = to_node_with_truncation(current_pointer, key, val);
-                                results.push(SearchResult {
-                                    node,
-                                    match_type: MatchType::Value,
-                                    match_text: s.clone(),
-                                    context: Some(format!("in key: {}", key)),
-                                });
-                            }
-                        }
-                        Value::Number(n) => {
-                            let num_str = n.to_string();
-                            let value_to_check = if case_sensitive { 
-                                num_str.clone() 
-                            } else { 
-                                num_str.to_lowercase() 
-                            };
-                            let matches = text_matches(&value_to_check, query, re, whole_word);
-                            if matches {
-                                let node = to_node_with_truncation(current_pointer, key, val);
-                                results.push(SearchResult {
-                                    node,
-                                    match_type: MatchType::Value,
-                                    match_text: num_str,
-                                    context: Some(format!("in key: {}", key)),
-                                });
-                            }
-                        }
-                        Value::Bool(b) => {
-                            let bool_str = b.to_string();
-                            let value_to_check = if case_sensitive { 
-                                bool_str.clone() 
-                            } else { 
-                                bool_str.to_lowercase() 
-                            };
-                            let matches = text_matches(&value_to_check, query, re, whole_word);
-                            if matches {
-                                let node = to_node_with_truncation(current_pointer, key, val);
-                                results.push(SearchResult {
-                                    node,
-                                    match_type: MatchType::Value,
-                                    match_text: bool_str,
-                                    context: Some(format!("in key: {}", key)),
-                                });
-                            }
-                        }
-                        _ => {
-                            // For objects and arrays, recurse into them
-                            search_recursive(val, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, whole_word, results);
+                    // Search in keys if enabled
+                    _ if search_keys => {
+                        if let Some(result) = search_key(current_pointer, query, re, case_sensitive, whole_word, key, val) {
+                            results.push(result);
                         }
                     }
-                } else {
-                    // If not searching values, still recurse into nested structures
-                    match val {
-                        Value::Object(_) | Value::Array(_) => {
-                            search_recursive(val, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, whole_word, results);
+
+                    // Search in values if it's a primitive value
+                    _ if search_values => {
+                        if let Some(result) = search_value(current_pointer, query, re, case_sensitive, whole_word, key, val) {
+                            results.push(result);
                         }
-                        _ => {} // Don't recurse into primitives when not searching values
-                    }
+                    },
+
+                    // Recurse into nested structures even if not searching values
+                    Value::Array(_) | Value::Object(_) => {
+                        search_recursive(val, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, whole_word, results);
+                    },
+                    _ => {} // Do nothing for primitives if not searching values
                 }
             }
         }
         Value::Array(arr) => {
-            for (index, item) in arr.iter().enumerate() {
-                let new_pointer = format!("{}/{}", current_pointer, index);
+            arr.iter().enumerate().for_each(|(index, item)|{
+                let new_pointer = next_pointer(&index.to_string(), current_pointer);
                 search_recursive(item, &new_pointer, query, re, search_keys, search_values, search_paths, case_sensitive, whole_word, results);
-            }
+            });
         }
         // Primitives are handled inside object/array iteration for values
         _ => {}
+    }
+}
+
+fn search_value(current_pointer: &String, query: &str, re: Option<&regex::Regex>, case_sensitive: bool, whole_word: bool, key: &String, val: &Value) -> Option<SearchResult> {
+    let value_to_check = check_case_sensitivity(&val.to_string(), case_sensitive);
+
+    let matches = text_matches(&value_to_check, query, re, whole_word);
+    if matches {
+        let node = to_node_with_truncation(current_pointer, key, val);
+        Some(SearchResult {
+            node,
+            match_type: MatchType::Value,
+            match_text: val.to_string(),
+            context: Some(format!("in key: {}", key)),
+        });
+    }
+
+    None
+}
+
+fn search_key(current_pointer: &String, query: &str, re: Option<&regex::Regex>, case_sensitive: bool, whole_word: bool, key: &String, val: &Value) -> Option<SearchResult> {
+    let key_to_check = check_case_sensitivity(key, case_sensitive);
+    let matches = text_matches(&key_to_check, query, re, whole_word);
+    if matches {
+        let node = to_node_with_truncation(current_pointer, key, val);
+        return Some(SearchResult {
+            node,
+            match_type: MatchType::Key,
+            match_text: key.clone(),
+            context: None,
+        });
+    }
+    None
+}
+
+
+fn search_path(value: &Value, current_pointer: &String, case_sensitive: bool, query: &str, re: Option<&regex::Regex>, whole_word: bool) -> Option<SearchResult> {
+    let path_to_check = check_case_sensitivity(current_pointer, case_sensitive);
+    let matches = text_matches(&path_to_check, query, re, whole_word);
+        if matches {
+            let node = create_node_for_path(value, current_pointer);
+            return Some(SearchResult {
+                node,
+                match_type: MatchType::Path,
+                match_text: current_pointer.to_string(),
+                context: None,
+            });
+        }
+
+    None
+}
+
+/// Moves the pointer to the next token by appending the escaped key.
+fn next_pointer(key: &String, current_pointer: &String) -> String {
+    if current_pointer.is_empty() {
+        format!("/{}", escape_pointer_token(key))
+    } else {
+        format!("{}/{}", current_pointer, escape_pointer_token(key))
+    }
+}
+
+/// Checks if the query should be case sensitive, and returns the appropriately cased string.
+fn check_case_sensitivity(text: &String, case_sensitive: bool) -> String {
+    if case_sensitive {
+        text.to_string()
+    } else {
+        text.to_lowercase()
     }
 }
