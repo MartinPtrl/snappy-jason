@@ -156,15 +156,15 @@ fn search_key(current_pointer: &String, query: &str, re: Option<&regex::Regex>, 
 fn search_path(value: &Value, current_pointer: &String, case_sensitive: bool, query: &str, re: Option<&regex::Regex>, whole_word: bool) -> Option<SearchResult> {
     let path_to_check = check_case_sensitivity(current_pointer, case_sensitive);
     let matches = text_matches(&path_to_check, query, re, whole_word);
-        if matches {
-            let node = create_node_for_path(value, current_pointer);
-            return Some(SearchResult {
-                node,
-                match_type: MatchType::Path,
-                match_text: current_pointer.to_string(),
-                context: None,
-            });
-        }
+    if matches {
+        let node = create_node_for_path(value, current_pointer);
+        return Some(SearchResult {
+            node,
+            match_type: MatchType::Path,
+            match_text: current_pointer.to_string(),
+            context: None,
+        });
+    }
 
     None
 }
