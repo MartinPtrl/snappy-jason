@@ -47,11 +47,9 @@ pub fn load_last_opened_file(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub fn clear_last_opened_file(app: tauri::AppHandle) -> Result<(), String> {
     let config_path = get_config_file_path(&app)?;
-    
     if config_path.exists() {
         std::fs::remove_file(&config_path)
             .map_err(|e| format!("Failed to remove config file: {}", e))?;
     }
-    
     Ok(())
 }
