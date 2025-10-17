@@ -1,6 +1,6 @@
 
 use serde_json::Value;
-use tauri::{async_runtime::spawn_blocking, Emitter};
+use tauri::async_runtime::spawn_blocking;
 use tokio::sync::Mutex;
 use crate::types::{common::AppState, types::{MatchType, SearchResponse, SearchResult}};
 use crate::utils::tree::{text_matches, to_node_with_truncation, create_node_for_path, escape_pointer_token};
