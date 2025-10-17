@@ -14,10 +14,20 @@ use commands::file::{open_file, open_clipboard, cancel_parse, load_children, ope
 use commands::search::search;
 use commands::node::{get_node_value, copy_node_value, set_node_value, set_subtree, parse_stringified_json};
 use commands::config::{save_last_opened_file, load_last_opened_file, clear_last_opened_file};
+use tauri::Manager;
 use tokio::sync::Mutex;
 
 pub fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            #[cfg(debug_assertions)] // only include this code on debug builds
+            {
+            let window = app.get_webview_window("main").unwrap();
+            window.open_devtools();
+            window.close_devtools();
+            }
+            Ok(())
+        })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(AppState::default()))

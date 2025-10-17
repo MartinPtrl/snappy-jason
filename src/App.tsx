@@ -94,7 +94,7 @@ function App() {
     const pointers: string[] = [];
     nodeArray.forEach((node) => {
       if (
-        (node.value_type === "object" || node.value_type === "array") &&
+        (node.value_type.toLowerCase() === "object" || node.value_type.toLowerCase() === "array") &&
         node.has_children
       ) {
         pointers.push(node.pointer);
@@ -991,7 +991,7 @@ function App() {
                       {(() => {
                         // Determine if this node can have a clipped snippet (string preview with search active)
                         const pointer = result.node.pointer;
-                        const isString = result.node.value_type === "string";
+                        const isString = result.node.value_type.toLowerCase() === "string";
                         const showToggle =
                           isString &&
                           searchQuery.trim().length > 0 &&

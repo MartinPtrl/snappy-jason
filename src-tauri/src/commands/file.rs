@@ -12,6 +12,8 @@ use arboard::Clipboard;
 pub async fn open_file(path: String, state: tauri::State<'_, Mutex<AppState>>, app_handle: tauri::AppHandle) -> Result<Vec<Node>, String> {
     // obtain a cancellation flag clone to share with background thread
     let mut state = state.lock().await;
+    state.file_path = Some(path.clone());
+
     let cancel_flag = state.cancel_parse.clone();
     // reset cancel flag at the beginning of a new parse
     cancel_flag.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -92,9 +94,9 @@ pub async fn open_file_dialog(state: tauri::State<'_, Mutex<AppState>>, app: tau
     let result = rx.await
         .map_err(|_| "Dialog was cancelled or failed".to_string())?;
 
-    if let Some(path) = result.clone() {
+    if let Some(ref path) = &result {
         let mut state = state.lock().await;
-        state.file_path = Some(path);
+        state.file_path = Some(path.clone());
     }
 
     Ok(result)
