@@ -1,5 +1,7 @@
+
 use serde_json::Value;
 use tauri::{async_runtime::spawn_blocking, Emitter};
+use tokio::sync::Mutex;
 use crate::types::{common::AppState, types::{MatchType, SearchResponse, SearchResult}};
 use crate::utils::tree::{text_matches, to_node_with_truncation, create_node_for_path, escape_pointer_token};
 
@@ -14,14 +16,13 @@ pub async fn search(
     whole_word: bool,
     offset: usize,
     limit: usize,
-    state: tauri::State<'_, AppState>
+    state: tauri::State<'_, Mutex<AppState>>
 ) -> Result<SearchResponse, String> {
     // Limit scope of read guard so it's dropped before await (RwLock guard is not Send)
-    let root_arc = {
-        let guard = state.doc.read();
-        let root = guard.as_ref().ok_or("No document loaded")?;
-        root.clone()
-    }; // guard dropped here
+    let guard = state.lock().await;
+    let root = guard.doc.as_ref().ok_or("No document loaded")?;
+    let root_arc = root.clone();
+    drop(guard);
 
     if query.trim().is_empty() {
         return Ok(SearchResponse { results: vec![], total_count: 0, has_more: false });

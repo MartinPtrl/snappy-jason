@@ -629,7 +629,7 @@ export function Tree({
         )}
         {(!isEditing || (isEditing && isContainer)) && (
           <span
-            className="node-preview copyable-item"
+            className={`node-preview copyable-item node-value-${node.value_type}`}
             style={{
               whiteSpace: effectiveShowFull ? "pre-wrap" : "pre",
               wordBreak: effectiveShowFull ? "break-word" : "normal",
