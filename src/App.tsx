@@ -3,8 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Node, SearchResult, SearchOptions } from "@/shared/types";
 import { useFileOperations } from "@/features/file";
+import { useFileStore } from "@/features/file/fileStore";
 import { Tree, useTreeOperations } from "@/features/tree";
-import { CopyIcon, ProgressBar, ToggleThemeButton } from "@shared";
+import { CopyIcon, ProgressBar, ToggleThemeButton, FileActionsDropdown } from "@shared";
 import { Updater } from "@/shared/Updater";
 import "./App.css";
 
@@ -24,6 +25,9 @@ function App() {
     parseProgress,
     cancelLoad,
   } = useFileOperations();
+
+  // Get setFileName from file store for updating filename after Save As
+  const { setFileName } = useFileStore();
 
   // Other state (non-file related)
   const [isDragOver, setIsDragOver] = useState(false);
@@ -67,6 +71,7 @@ function App() {
 
   // Clipboard modal & toast state (already declared earlier in code; ensure not duplicated)
   const [showPasteConfirm, setShowPasteConfirm] = useState(false);
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const pastePendingRef = useRef(false);
   const [toastMessage, setToastMessage] = useState<string>("");
   const toastTimeoutRef = useRef<number | null>(null);
@@ -89,7 +94,7 @@ function App() {
     const pointers: string[] = [];
     nodeArray.forEach((node) => {
       if (
-        (node.value_type === "object" || node.value_type === "array") &&
+        (node.value_type.toLowerCase() === "object" || node.value_type.toLowerCase() === "array") &&
         node.has_children
       ) {
         pointers.push(node.pointer);
@@ -489,6 +494,91 @@ function App() {
       window.removeEventListener("keydown", handler, { capture: true } as any);
   }, [nodes.length, loadClipboard, loading, showToast]);
 
+  // Global copy (Ctrl/Cmd+C) to copy JSON as pretty format
+  useEffect(() => {
+    const handler = async (e: KeyboardEvent) => {
+      const isCopy = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c";
+      if (!isCopy) return;
+      
+      // Ignore if focused element is an editable field (allow normal copy behavior)
+      const active = document.activeElement as HTMLElement | null;
+      if (active) {
+        const tag = active.tagName.toLowerCase();
+        if (
+          tag === "input" ||
+          tag === "textarea" ||
+          (active as any).isContentEditable
+        )
+          return;
+      }
+
+      // Only handle if there's data loaded
+      if (nodes.length === 0) return;
+
+      e.preventDefault();
+      
+      try {
+        await invoke('copy_as_pretty');
+        showToast("Copied JSON as pretty format");
+      } catch (error) {
+        console.error('Failed to copy JSON:', error);
+        showToast("Failed to copy JSON", 3000);
+      }
+    };
+    window.addEventListener("keydown", handler, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", handler, { capture: true } as any);
+  }, [nodes.length, showToast]);
+
+  // Global save (Ctrl/Cmd+S) to save file or save as
+  useEffect(() => {
+    const handler = async (e: KeyboardEvent) => {
+      const isSave = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s";
+      if (!isSave) return;
+      
+      // Ignore if focused element is an editable field (allow normal behavior)
+      const active = document.activeElement as HTMLElement | null;
+      if (active) {
+        const tag = active.tagName.toLowerCase();
+        if (
+          tag === "input" ||
+          tag === "textarea" ||
+          (active as any).isContentEditable
+        )
+          return;
+      }
+
+      // Only handle if there's data loaded
+      if (nodes.length === 0) return;
+
+      e.preventDefault();
+      
+      const hasFile = Boolean(fileName) && fileName !== "[Clipboard]";
+      
+      if (hasFile) {
+        // File is loaded - show confirmation modal
+        setShowSaveConfirm(true);
+      } else {
+        // Clipboard is loaded - call save as directly (no confirmation needed)
+        try {
+          const result = await invoke<string | null>('save_file_as');
+          if (result) {
+            // Extract just the filename from the full path
+            const newFileName = result.split(/[/\\]/).pop() || result;
+            setFileName(newFileName);
+            showToast("File saved successfully");
+          }
+        } catch (error) {
+          console.error('Failed to save file as:', error);
+          showToast("Failed to save file", 3000);
+        }
+      }
+    };
+    window.addEventListener("keydown", handler, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", handler, { capture: true } as any);
+  }, [nodes.length, fileName, setFileName, showToast]);
+
   // Modal accessibility: ESC close, focus trap, initial focus, and restore focus
   useEffect(() => {
     if (!showPasteConfirm) return;
@@ -539,6 +629,25 @@ function App() {
     };
   }, [showPasteConfirm]);
 
+  // Modal accessibility for save confirmation: ESC close
+  useEffect(() => {
+    if (!showSaveConfirm) return;
+
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowSaveConfirm(false);
+        return;
+      }
+    };
+    window.addEventListener("keydown", keyHandler, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", keyHandler, {
+        capture: true,
+      } as any);
+    };
+  }, [showSaveConfirm]);
+
   return (
     <div className="app">
       {showPasteConfirm && (
@@ -588,6 +697,52 @@ function App() {
           </div>
         </div>
       )}
+      {showSaveConfirm && (
+        <div className="modal-overlay" role="presentation">
+          <div
+            className="modal-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="save-confirm-title"
+            aria-describedby="save-confirm-desc"
+          >
+            <h3 className="modal-title" id="save-confirm-title">
+              Overwrite file?
+            </h3>
+            <p className="modal-body" id="save-confirm-desc">
+              This will overwrite the file:<br />
+              <strong>{fileName}</strong>
+              <br /><br />
+              Are you sure you want to continue?
+            </p>
+            <div className="modal-actions">
+              <button
+                className="btn"
+                onClick={() => {
+                  setShowSaveConfirm(false);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={async () => {
+                  setShowSaveConfirm(false);
+                  try {
+                    await invoke('save_file');
+                    showToast("File saved successfully");
+                  } catch (error) {
+                    console.error('Failed to save file:', error);
+                    showToast("Failed to save file", 3000);
+                  }
+                }}
+              >
+                Overwrite
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {toastMessage && (
         <div className="toast-container">
           <div className="toast" role="status" aria-live="polite">
@@ -600,6 +755,11 @@ function App() {
           <h1>Snappy JSON Viewer</h1>
           <div className="header-controls">
             <Updater checkOnStartup={true} />
+            <FileActionsDropdown 
+              fileName={fileName} 
+              disabled={loading || nodes.length === 0} 
+              onFileNameChange={setFileName}
+            />
             <ToggleThemeButton />
             <div className="file-input-container">
               {(fileName || nodes.length > 0) && (
@@ -831,7 +991,7 @@ function App() {
                       {(() => {
                         // Determine if this node can have a clipped snippet (string preview with search active)
                         const pointer = result.node.pointer;
-                        const isString = result.node.value_type === "string";
+                        const isString = result.node.value_type.toLowerCase() === "string";
                         const showToggle =
                           isString &&
                           searchQuery.trim().length > 0 &&

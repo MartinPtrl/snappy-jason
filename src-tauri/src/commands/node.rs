@@ -1,13 +1,13 @@
-use std::sync::Arc;
 use serde_json::Value;
+use tokio::sync::Mutex;
 use crate::types::types::{Node, ValueType};
 use crate::types::common::AppState;
 use crate::utils::tree::{build_node_for_pointer, use_pointer, use_pointer_mut};
 
 #[tauri::command]
-pub fn get_node_value(pointer: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let guard = state.doc.read();
-    let root = guard.as_ref().ok_or("No document loaded")?;
+pub async fn get_node_value(pointer: String, state: tauri::State<'_, Mutex<AppState>>) -> Result<String, String> {
+    let state = state.lock().await;
+    let root = state.doc.as_ref().ok_or("No document loaded")?;
     let value = use_pointer(root, &pointer)?;
     
     serde_json::to_string(value).map_err(|e| e.to_string())
@@ -17,11 +17,11 @@ pub fn get_node_value(pointer: String, state: tauri::State<'_, AppState>) -> Res
 // This avoids needing a user-activation constrained browser API and skips transferring large JSON
 // blobs back to the frontend only to copy them again.
 #[tauri::command]
-pub fn copy_node_value(pointer: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub async fn copy_node_value(pointer: String, state: tauri::State<'_, Mutex<AppState>>) -> Result<(), String> {
     use arboard::Clipboard;
 
-    let guard = state.doc.read();
-    let root = guard.as_ref().ok_or("No document loaded")?;
+    let state = state.lock().await;
+    let root = state.doc.as_ref().ok_or("No document loaded")?;
 
     let value = use_pointer(root, &pointer)?;
     
@@ -32,14 +32,12 @@ pub fn copy_node_value(pointer: String, state: tauri::State<'_, AppState>) -> Re
 }
 
 #[tauri::command]
-pub fn set_node_value(pointer: String, new_value: String, state: tauri::State<'_, AppState>) -> Result<Node, String> {
+pub async fn set_node_value(pointer: String, new_value: String, state: tauri::State<'_, Mutex<AppState>>) -> Result<Node, String> {
     // Acquire write lock to allow mutation
-    let mut guard = state.doc.write();
-    let root_arc = guard.as_mut().ok_or("No document loaded")?;
+    let mut state = state.lock().await;
+    let root = state.doc.as_mut().ok_or("No document loaded")?;
 
-    // We clone the Arc if needed to obtain a mutable reference
-    let root_mut = Arc::make_mut(root_arc);
-    let current_value = use_pointer_mut(root_mut, &pointer)?; 
+    let current_value = use_pointer_mut(root, &pointer)?;
 
     // Only allow editing primitive scalar types
     match current_value {
@@ -68,7 +66,7 @@ pub fn set_node_value(pointer: String, new_value: String, state: tauri::State<'_
     }
 
     // Build updated node to return
-    build_node_for_pointer(root_mut, &pointer)
+    build_node_for_pointer(root, &pointer)
 }
 
 
@@ -93,7 +91,7 @@ fn parse_json_number(new_value: &String) -> Result<serde_json::Number, String> {
 }
 
 #[tauri::command]
-pub fn set_subtree(pointer: String, new_json: String, state: tauri::State<'_, AppState>) -> Result<Node, String> {
+pub async fn set_subtree(pointer: String, new_json: String, state: tauri::State<'_, Mutex<AppState>>) -> Result<Node, String> {
     // Parse input JSON first
     let parsed = serde_json::from_str(&new_json).map_err(|e| format!("Parse error: {e}"))?;
     // Must be object or array
@@ -101,11 +99,10 @@ pub fn set_subtree(pointer: String, new_json: String, state: tauri::State<'_, Ap
         .ok_or("Edited subtree must be an object or array")?;
 
     // Acquire write lock
-    let mut guard = state.doc.write();
-    let root_arc = guard.as_mut().ok_or("No document loaded")?;
-    let root_mut = Arc::make_mut(root_arc);
+    let mut guard = state.lock().await;
+    let root = guard.doc.as_mut().ok_or("No document loaded")?;
 
-    let current_value = use_pointer_mut(root_mut, &pointer)?; 
+    let current_value = use_pointer_mut(root, &pointer)?; 
 
     // Ensure same container type
     let existing_kind = get_container_type(current_value)
@@ -118,7 +115,7 @@ pub fn set_subtree(pointer: String, new_json: String, state: tauri::State<'_, Ap
     // Replace
     *current_value = parsed;
 
-    build_node_for_pointer(root_mut, &pointer)
+    build_node_for_pointer(root, &pointer)
 }
 
 // Attempt to parse a string node whose content itself is JSON (object/array) and replace it in-place.
@@ -126,12 +123,11 @@ pub fn set_subtree(pointer: String, new_json: String, state: tauri::State<'_, Ap
 // to avoid accidental coercion of primitive-like strings (e.g. numbers, booleans) that a user might
 // prefer to keep as literal strings.
 #[tauri::command]
-pub fn parse_stringified_json(pointer: String, state: tauri::State<'_, AppState>) -> Result<Node, String> {
+pub async fn parse_stringified_json(pointer: String, state: tauri::State<'_, Mutex<AppState>>) -> Result<Node, String> {
     // Acquire write lock for mutation
-    let mut guard = state.doc.write();
-    let root_arc = guard.as_mut().ok_or("No document loaded")?;
-    let root_mut= Arc::make_mut(root_arc);
-    let current_value = use_pointer_mut(root_mut, &pointer)?; 
+    let mut guard = state.lock().await;
+    let root = guard.doc.as_mut().ok_or("No document loaded")?;
+    let current_value = use_pointer_mut(root, &pointer)?;
 
     let as_str = current_value.as_str().ok_or("Target node is not a string")?;
     let parsed: Value = serde_json::from_str(as_str.trim()).map_err(|e| format!("Parse error: {e}"))?;
@@ -143,7 +139,7 @@ pub fn parse_stringified_json(pointer: String, state: tauri::State<'_, AppState>
         _ => return Err("Parsed value is not an object/array".into()),
     }
 
-    build_node_for_pointer(root_mut, &pointer)
+    build_node_for_pointer(root, &pointer)
 }
 
 fn get_container_type(value: &Value) -> Option<ValueType> {

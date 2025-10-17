@@ -37,11 +37,11 @@ export function Tree({
   >(null);
 
   const isScalarEditable =
-    node.value_type === "string" ||
-    node.value_type === "number" ||
-    node.value_type === "boolean";
+    node.value_type.toLowerCase() === "string" ||
+    node.value_type.toLowerCase() === "number" ||
+    node.value_type.toLowerCase() === "boolean";
   const isContainer =
-    node.value_type === "object" || node.value_type === "array";
+    node.value_type.toLowerCase() === "object" || node.value_type.toLowerCase() === "array";
 
   // Heuristic to detect if a string preview looks like a stringified JSON object/array.
   // We only look at the (possibly truncated) preview for quick UI hint; the backend will
@@ -49,7 +49,7 @@ export function Tree({
   // to reduce false positives we require the preview to start with '{' or '['.
   // If truncated (ends with …) we still show the button because the original may still parse.
   const looksLikeStringifiedJson = useMemo(() => {
-    if (node.value_type !== "string") return false;
+    if (node.value_type.toLowerCase() !== "string") return false;
     if (!node.preview) return false;
     const trimmed = node.preview.trim();
     return trimmed.startsWith("{") || trimmed.startsWith("[");
@@ -67,7 +67,7 @@ export function Tree({
     }
     setEditValue(node.preview.replace(/…$/, ""));
     setTimeout(() => {
-      if (node.value_type === "boolean") {
+      if (node.value_type.toLowerCase() === "boolean") {
         inputRef.current?.focus?.();
       } else if (inputRef.current instanceof HTMLInputElement) {
         inputRef.current.focus();
@@ -155,7 +155,7 @@ export function Tree({
   const saveEdit = useCallback(async () => {
     if (isScalarEditable) {
       let valueToSend = editValue;
-      if (node.value_type === "boolean") {
+      if (node.value_type.toLowerCase() === "boolean") {
         const lower = valueToSend.trim().toLowerCase();
         if (lower !== "true" && lower !== "false") {
           setEditError("Enter true or false");
@@ -184,11 +184,11 @@ export function Tree({
         const parsedIsObject =
           parsed && typeof parsed === "object" && !Array.isArray(parsed);
         const parsedIsArray = Array.isArray(parsed);
-        if (node.value_type === "object" && !parsedIsObject) {
+        if (node.value_type.toLowerCase() === "object" && !parsedIsObject) {
           setEditError("Must remain an object");
           return;
         }
-        if (node.value_type === "array" && !parsedIsArray) {
+        if (node.value_type.toLowerCase() === "array" && !parsedIsArray) {
           setEditError("Must remain an array");
           return;
         }
@@ -426,7 +426,7 @@ export function Tree({
   );
 
   const getTypeColor = (type: string) => {
-    switch (type) {
+    switch (type.toLowerCase()) {
       case "object":
         return "#e67e22";
       case "array":
@@ -629,7 +629,7 @@ export function Tree({
         )}
         {(!isEditing || (isEditing && isContainer)) && (
           <span
-            className="node-preview copyable-item"
+            className={`node-preview copyable-item node-value-${node.value_type.toLowerCase()}`}
             style={{
               whiteSpace: effectiveShowFull ? "pre-wrap" : "pre",
               wordBreak: effectiveShowFull ? "break-word" : "normal",
@@ -722,7 +722,7 @@ export function Tree({
       </div>
       {isEditing && !isContainer && (
         <div style={{ marginLeft: "36px", marginTop: 2 }}>
-          {node.value_type === "boolean" ? (
+          {node.value_type.toLowerCase() === "boolean" ? (
             <span style={{ display: "inline-flex", flexDirection: "column" }}>
               <input
                 ref={inputRef as any}
